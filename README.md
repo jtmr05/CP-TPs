@@ -5,3 +5,4 @@ Trabalhos práticos no âmbito da UC de Computação Paralela
 
 * [Joaquim T. Roque](https://github.com/jtmr05)
 * [Catarina Martins](https://github.com/CatarinaMorales)
+
