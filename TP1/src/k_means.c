@@ -87,12 +87,14 @@ typedef struct {
 
 
 static inline
-ClusterVector new_cluster_vector(size_t NUMBER_OF_CLUSTERS) {
+ClusterVector new_cluster_vector(size_t const NUMBER_OF_CLUSTERS) {
 
-	return (ClusterVector){
-		.data = malloc(sizeof(Cluster) * NUMBER_OF_CLUSTERS),
+	ClusterVector const cv = (ClusterVector){
+		.data = malloc(sizeof *(cv.data) * NUMBER_OF_CLUSTERS),
 		.size = NUMBER_OF_CLUSTERS
 	};
+
+	return cv;
 }
 
 static inline
