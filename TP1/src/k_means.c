@@ -165,7 +165,7 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS){
 			}
 
 			converged       = tsv.data[i].tag == new_cluster && converged;
-			tsv.data[i].tag = tsv.data[i].tag == new_cluster ? tsv.data[i].tag : new_cluster;
+			tsv.data[i].tag = new_cluster;
 
 			next_cv.data[new_cluster].centroid.x += s.x;
 			next_cv.data[new_cluster].centroid.y += s.y;

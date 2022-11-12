@@ -7,7 +7,7 @@
 
 void set_seed(unsigned int const seed);
 
-void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS);
+void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, size_t const NUMBER_OF_THREADS);
 
 
 

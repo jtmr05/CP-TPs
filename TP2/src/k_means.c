@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <memory.h>
+#include <omp.h>
 
 
 
@@ -24,7 +25,7 @@ typedef struct {
 
 typedef struct {
 
-	TaggedSample* const restrict data;
+	TaggedSample* const data;
 	size_t const size;
 
 } TaggedSampleVector;
@@ -42,7 +43,7 @@ TaggedSampleVector new_tagged_sample_vector(size_t const size){
 }
 
 static inline
-void fill_tagged_sample_vector(TaggedSampleVector const* const restrict tsv){
+void fill_tagged_sample_vector(TaggedSampleVector const* const tsv){
 
 	for(size_t i = 0; i < tsv->size; ++i){
 
@@ -80,7 +81,7 @@ typedef struct {
 
 typedef struct {
 
-	Cluster* restrict data;
+	Cluster* data;
 	size_t const size;
 
 } ClusterVector;
@@ -98,7 +99,7 @@ ClusterVector new_cluster_vector(size_t const NUMBER_OF_CLUSTERS) {
 }
 
 static inline
-void init_cluster_vector(ClusterVector const* const restrict cv, TaggedSampleVector const* const restrict tsv){
+void init_cluster_vector(ClusterVector const* const cv, TaggedSampleVector const* const tsv){
 
 	for(size_t i = 0; i < cv->size; ++i){
 
@@ -110,7 +111,7 @@ void init_cluster_vector(ClusterVector const* const restrict cv, TaggedSampleVec
 }
 
 static inline
-void swap_data_cluster_vector(ClusterVector* const restrict p1, ClusterVector* const restrict p2){
+void swap_data_cluster_vector(ClusterVector* const p1, ClusterVector* const p2){
 	Cluster* const tmp = p1->data;
 	p1->data = p2->data;
 	p2->data = tmp;
@@ -122,7 +123,7 @@ void delete_cluster_vector(ClusterVector const cv){
 }
 
 static inline
-void reset_cluster_vector(ClusterVector const* const restrict cv){
+void reset_cluster_vector(ClusterVector const* const cv){
 	memset(cv->data, 0, sizeof *(cv->data) * cv->size);
 }
 
@@ -132,7 +133,7 @@ void set_seed(unsigned int const seed){
 	srand(seed);
 }
 
-void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS){
+void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, size_t const NUMBER_OF_THREADS){
 
 	TaggedSampleVector const tsv = new_tagged_sample_vector(NUMBER_OF_SAMPLES);
 	fill_tagged_sample_vector(&tsv);
@@ -150,6 +151,11 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS){
 
 		converged = true;
 
+		size_t num_of_changes = 0;
+
+#pragma omp parallel num_threads(NUMBER_OF_THREADS)
+#pragma omp for reduction(+:num_of_changes)
+
 		for(size_t i = 0; i < tsv.size; ++i){
 
 			Sample const s    = (Sample){ .x = tsv.data[i].x, .y = tsv.data[i].y };
@@ -164,13 +170,22 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS){
 				min_dist    = (tmp_dist < min_dist) ? tmp_dist : min_dist;
 			}
 
-			converged       = tsv.data[i].tag == new_cluster && converged;
-			tsv.data[i].tag = tsv.data[i].tag == new_cluster ? tsv.data[i].tag : new_cluster;
+			num_of_changes += tsv.data[i].tag == new_cluster ? 0 : 1;
+			tsv.data[i].tag = new_cluster;
+
+#pragma omp critical 
+			{
+			//converged       = tsv.data[i].tag == new_cluster && converged;
 
 			next_cv.data[new_cluster].centroid.x += s.x;
 			next_cv.data[new_cluster].centroid.y += s.y;
 			next_cv.data[new_cluster].size += 1;
+			}
 		}
+
+		//printf("%lu changes\n", num_of_changes);
+
+		converged = num_of_changes == 0;
 
 	    /* When converged == true (final iteration),
 		 * code below this comment is redundant.

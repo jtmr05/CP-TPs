@@ -35,7 +35,7 @@ CC 				:= gcc
 STD				:= c11
 
 #compiler flags
-CFLAGS 			:= -I$(INC_DIR) -O3 -Wall -Wextra -Winline -Wsign-conversion -pedantic -std=$(STD) -DNDEBUG -fopt-info-optall-note-optimized-missed=$(INFO_OPT_FILE)
+CFLAGS 			:= -I$(INC_DIR) -O0 -Wall -Wextra -Winline -Wsign-conversion -pedantic -std=$(STD) -DNDEBUG -fopt-info-optall-note-optimized-missed=$(INFO_OPT_FILE) -fopenmp -g
 
 #linker flags (e.g. -L/path/to/lib)
 LDFLAGS			:=
@@ -94,5 +94,13 @@ ifdef PCH_INC_FILES
 	-rm -rf $(PCH_INC_FILES)
 endif
 
-run: $(BIN)
-	./$^
+
+
+# number of threads to be used
+THREADS 		:= 2
+
+runseq: $(BIN)
+	./$^ 10000000 ${CP_CLUSTERS} 
+
+runpar: $(BIN)
+	./$^ 10000000 ${CP_CLUSTERS} $(THREADS)
