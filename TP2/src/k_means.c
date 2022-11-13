@@ -205,7 +205,7 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 
 		printf("%lu changes\n", num_of_changes);
 
-		converged = num_of_changes == 0;
+		converged = num_of_changes == 0 || iter > 19;
 
 	    /* When converged == true (final iteration),
 		 * code below this comment is redundant.
