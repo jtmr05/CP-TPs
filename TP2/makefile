@@ -97,7 +97,7 @@ endif
 
 
 # number of threads to be used
-THREADS 		:= 2
+THREADS 		:= 4
 
 runseq: $(BIN)
 	./$^ 10000000 ${CP_CLUSTERS}

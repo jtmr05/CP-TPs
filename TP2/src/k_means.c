@@ -8,6 +8,8 @@
 
 
 
+static size_t const MAX_ITERS = 20;
+
 //Samples
 
 typedef struct {
@@ -152,7 +154,7 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 	reset_cluster_vector(&next_cv);
 
 
-	for(size_t iter = 0; iter < 20; ++iter){
+	for(size_t iter = 0; iter < MAX_ITERS; ++iter){
 
 		float* const xs = next_cv.xs;
 		float* const ys = next_cv.ys;
@@ -202,8 +204,7 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 		printf("Center: (%.3f, %.3f) : Size: %lu\n", x, y, size);
 	}
 
-	printf("Iterations: 20\n");
-	//printf("Iterations: %lu\n", iter);
+	printf("Iterations: %lu\n", MAX_ITERS);
 
 	delete_cluster_vector(curr_cv);
 	delete_cluster_vector(next_cv);
