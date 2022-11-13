@@ -192,9 +192,6 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 		reset_cluster_vector(&next_cv);
 	}
 
-	/* Final iteration is merely a verification.
-	 * Thus, we need to decrement iter.
-	 */
 
 	for(size_t i = 0; i < curr_cv.size; ++i){
 
