@@ -72,7 +72,7 @@ void delete_tagged_sample_vector(TaggedSampleVector const tsv){
 
 // Clusters
 
-typedef struct {
+/*typedef struct {
 
 	Sample centroid;
 	size_t size;
@@ -84,14 +84,24 @@ typedef struct {
 	Cluster* data;
 	size_t const size;
 
-} ClusterVector;
+} ClusterVector; */
 
+typedef struct {
+
+	float* xs;
+	float* ys;
+	size_t* sizes;
+	size_t const size;
+
+} ClusterVector;
 
 static inline
 ClusterVector new_cluster_vector(size_t const NUMBER_OF_CLUSTERS) {
 
 	ClusterVector const cv = (ClusterVector){
-		.data = malloc(sizeof *(cv.data) * NUMBER_OF_CLUSTERS),
+		.xs = malloc(sizeof *(cv.xs) * NUMBER_OF_CLUSTERS),
+		.ys = malloc(sizeof *(cv.ys) * NUMBER_OF_CLUSTERS),
+		.sizes = malloc(sizeof *(cv.sizes) * NUMBER_OF_CLUSTERS),
 		.size = NUMBER_OF_CLUSTERS
 	};
 
@@ -103,28 +113,39 @@ void init_cluster_vector(ClusterVector const* const cv, TaggedSampleVector const
 
 	for(size_t i = 0; i < cv->size; ++i){
 
-		float const x = tsv->data[i].x;
-		float const y = tsv->data[i].y;
-
-		cv->data[i].centroid = (Sample){ .x = x, .y = y };
+		cv->xs[i] = tsv->data[i].x;
+		cv->ys[i] = tsv->data[i].y;
 	}
 }
 
 static inline
 void swap_data_cluster_vector(ClusterVector* const p1, ClusterVector* const p2){
-	Cluster* const tmp = p1->data;
-	p1->data = p2->data;
-	p2->data = tmp;
+
+	float* const tmp_xs = p1->xs;
+	float* const tmp_ys = p1->ys;
+	size_t* const tmp_sizes = p1->sizes;
+
+	p1->xs = p2->xs;
+	p1->ys = p2->ys;
+	p1->sizes = p2->sizes;
+
+	p2->xs = tmp_xs;
+	p2->ys = tmp_ys;
+	p2->sizes = tmp_sizes;
 }
 
 static inline
 void delete_cluster_vector(ClusterVector const cv){
-	free(cv.data);
+	free(cv.xs);
+	free(cv.ys);
+	free(cv.sizes);
 }
 
 static inline
 void reset_cluster_vector(ClusterVector const* const cv){
-	memset(cv->data, 0, sizeof *(cv->data) * cv->size);
+	memset(cv->xs, 0, sizeof *(cv->xs) * cv->size);
+	memset(cv->ys, 0, sizeof *(cv->ys) * cv->size);
+	memset(cv->sizes, 0, sizeof *(cv->sizes) * cv->size);
 }
 
 
@@ -153,18 +174,22 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 
 		size_t num_of_changes = 0;
 
+		float* const xs = next_cv.xs;
+		float* const ys = next_cv.ys;
+		size_t* const sizes = next_cv.sizes;
+
 #pragma omp parallel num_threads(NUMBER_OF_THREADS)
-#pragma omp for reduction(+:num_of_changes)
+#pragma omp for reduction(+:num_of_changes, xs[:NUMBER_OF_CLUSTERS], ys[:NUMBER_OF_CLUSTERS], sizes[:NUMBER_OF_CLUSTERS])
 
 		for(size_t i = 0; i < tsv.size; ++i){
 
 			Sample const s    = (Sample){ .x = tsv.data[i].x, .y = tsv.data[i].y };
 			long  new_cluster = 0;
-			float min_dist    = distance_sample(curr_cv.data[0].centroid, s);
+			float min_dist    = distance_sample((Sample){ .x = curr_cv.xs[0], .y = curr_cv.ys[0] }, s);
 
 			for(size_t j = 1; j < curr_cv.size; ++j){
 
-				float const tmp_dist = distance_sample(curr_cv.data[j].centroid, s);
+				float const tmp_dist = distance_sample((Sample){ .x = curr_cv.xs[j], .y = curr_cv.ys[j] }, s);
 
 				new_cluster = (tmp_dist < min_dist) ? (long) j : new_cluster;
 				min_dist    = (tmp_dist < min_dist) ? tmp_dist : min_dist;
@@ -173,17 +198,12 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 			num_of_changes += tsv.data[i].tag == new_cluster ? 0 : 1;
 			tsv.data[i].tag = new_cluster;
 
-#pragma omp critical 
-			{
-			//converged       = tsv.data[i].tag == new_cluster && converged;
-
-			next_cv.data[new_cluster].centroid.x += s.x;
-			next_cv.data[new_cluster].centroid.y += s.y;
-			next_cv.data[new_cluster].size += 1;
-			}
+			xs[new_cluster] += s.x;
+			ys[new_cluster] += s.y;
+			sizes[new_cluster] += 1;
 		}
 
-		//printf("%lu changes\n", num_of_changes);
+		printf("%lu changes\n", num_of_changes);
 
 		converged = num_of_changes == 0;
 
@@ -193,8 +213,8 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
    		 */
 
 		for(size_t i = 0; i < next_cv.size; ++i){
-			next_cv.data[i].centroid.x /= next_cv.data[i].size;
-			next_cv.data[i].centroid.y /= next_cv.data[i].size;
+			next_cv.xs[i] /= next_cv.sizes[i];
+			next_cv.ys[i] /= next_cv.sizes[i];
 		}
 
 		swap_data_cluster_vector(&curr_cv, &next_cv);
@@ -209,9 +229,11 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 
 	for(size_t i = 0; i < curr_cv.size; ++i){
 
-		Sample const centroid = curr_cv.data[i].centroid;
+		float const x = curr_cv.xs[i];
+		float const y = curr_cv.ys[i];
+		size_t const size = curr_cv.sizes[i];
 
-		printf("Center: (%.3f, %.3f) : Size: %lu\n", centroid.x, centroid.y, curr_cv.data[i].size);
+		printf("Center: (%.3f, %.3f) : Size: %lu\n", x, y, size);
 	}
 
 	printf("Iterations: %lu\n", iter);
