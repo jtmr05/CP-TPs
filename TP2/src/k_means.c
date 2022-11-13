@@ -72,20 +72,6 @@ void delete_tagged_sample_vector(TaggedSampleVector const tsv){
 
 // Clusters
 
-/*typedef struct {
-
-	Sample centroid;
-	size_t size;
-
-} Cluster;
-
-typedef struct {
-
-	Cluster* data;
-	size_t const size;
-
-} ClusterVector; */
-
 typedef struct {
 
 	float* xs;
