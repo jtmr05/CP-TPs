@@ -182,10 +182,6 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 			sizes[new_cluster] += 1;
 		}
 
-	    /* When converged == true (final iteration),
-		 * code below this comment is redundant.
-		 * But at least there are no if clauses...
-   		 */
 
 		for(size_t i = 0; i < next_cv.size; ++i){
 			next_cv.xs[i] /= next_cv.sizes[i];
