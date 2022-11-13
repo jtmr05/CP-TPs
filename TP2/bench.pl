@@ -9,5 +9,5 @@ my $NUM_OF_ITER = 5;
 unlink "$FN";
 
 for(my $i = 0; $i < $NUM_OF_ITER; ++$i){
-	system "{ srun --partition=cpar perf stat -e instructions,cycles -M cpi make run; } 2>> $FN";
+	system "{ srun --partition=cpar perf stat -e instructions,cycles -M cpi make runpar; } 2>> $FN";
 }
