@@ -8,7 +8,7 @@
 
 static unsigned int const SEED = 10;
 
-static char const* const REGEX_COMMAND = "perl -e 'exit (($ARGV[0] =~ m/^\\+?\\d+$/) ? 0 : 1);'";
+static char const* const REGEX_COMMAND = "perl -e 'exit (($ARGV[0] =~ m/^\\+?(\\d+)$/) ? ($1 == 0) : 1);'";
 
 
 int main(int const argc, char const* const* const argv){
@@ -28,16 +28,11 @@ int main(int const argc, char const* const* const argv){
 
 		snprintf(command, size, "%s %s", REGEX_COMMAND, argv[i]);
 
-		if(system(command) == 0){
-
+		if(system(command) == 0)
 			params[i - 1] = (size_t) atol(argv[i]);
 
-			if(params[i - 1] == 0)
-				goto FAIL;
-		}
-
 		else {
-FAIL:
+
 			fprintf(stderr, "%s: invalid argument '%s' (must be a positive integer)\n", argv[0], argv[i]);
 			free(command);
 			return 1;

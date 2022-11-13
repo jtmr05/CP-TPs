@@ -166,20 +166,14 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 	reset_cluster_vector(&next_cv);
 
 
-	size_t iter = 0;
-
-	for(bool converged = false; !converged; ++iter){
-
-		converged = true;
-
-		size_t num_of_changes = 0;
+	for(size_t iter = 0; iter < 20; ++iter){
 
 		float* const xs = next_cv.xs;
 		float* const ys = next_cv.ys;
 		size_t* const sizes = next_cv.sizes;
 
 #pragma omp parallel num_threads(NUMBER_OF_THREADS)
-#pragma omp for reduction(+:num_of_changes, xs[:NUMBER_OF_CLUSTERS], ys[:NUMBER_OF_CLUSTERS], sizes[:NUMBER_OF_CLUSTERS])
+#pragma omp for reduction(+:xs[:NUMBER_OF_CLUSTERS], ys[:NUMBER_OF_CLUSTERS], sizes[:NUMBER_OF_CLUSTERS])
 
 		for(size_t i = 0; i < tsv.size; ++i){
 
@@ -195,17 +189,12 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 				min_dist    = (tmp_dist < min_dist) ? tmp_dist : min_dist;
 			}
 
-			num_of_changes += tsv.data[i].tag == new_cluster ? 0 : 1;
 			tsv.data[i].tag = new_cluster;
 
 			xs[new_cluster] += s.x;
 			ys[new_cluster] += s.y;
 			sizes[new_cluster] += 1;
 		}
-
-		printf("%lu changes\n", num_of_changes);
-
-		converged = num_of_changes == 0 || iter > 19;
 
 	    /* When converged == true (final iteration),
 		 * code below this comment is redundant.
@@ -225,8 +214,6 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 	 * Thus, we need to decrement iter.
 	 */
 
-	--iter;
-
 	for(size_t i = 0; i < curr_cv.size; ++i){
 
 		float const x = curr_cv.xs[i];
@@ -236,7 +223,8 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 		printf("Center: (%.3f, %.3f) : Size: %lu\n", x, y, size);
 	}
 
-	printf("Iterations: %lu\n", iter);
+	printf("Iterations: 20\n");
+	//printf("Iterations: %lu\n", iter);
 
 	delete_cluster_vector(curr_cv);
 	delete_cluster_vector(next_cv);
