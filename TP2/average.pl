@@ -5,14 +5,23 @@ use warnings;
 
 foreach my $fn (@ARGV){
 
-	open my $fh, '<', $fn or die "$!";
+	my $fh = undef;
 
-	my %sums = ( 'cycles' => 0, 'instructions' => 0, 'seconds time' => 0 );
-	my %counts = ( 'cycles' => 0, 'instructions' => 0, 'seconds time' => 0 );
+	unless(-f $fn and open $fh, '<', $fn){
+		warn "$!";
+		next;
+	}
+
+
+	my @KEYS = ('cycles', 'instructions', 'seconds time');
+
+	my %sums   = ( $KEYS[0] => 0, $KEYS[1] => 0, $KEYS[2] => 0 );
+	my %counts = ( $KEYS[0] => 0, $KEYS[1] => 0, $KEYS[2] => 0 );
+
 
 	while(<$fh>){
 
-		if(m/\s*(.+?)\s+(instructions|cycles|seconds\stime)/){
+		if(m/\s*(.+?)\s+($KEYS[0]|$KEYS[1]|$KEYS[2])/){
 	
 			my $one = $1;
 			my $two = $2;
@@ -25,25 +34,26 @@ foreach my $fn (@ARGV){
 	}
 	
 
-	for my $key (keys %sums){
+	for my $key (@KEYS){
 		$sums{$key} /= $counts{$key};
 	}
 
 	print "$fn:\n";
 
 	
-	foreach my $key (keys %sums){
+	#foreach my $key (@KEYS){
 
-		my $rounded = $sums{$key};
-		my $decimal = undef;
+	my $key = 'seconds time';
+	my $rounded = $sums{$key};
 
-		$rounded =~ s/(\d+)(\.\d+)?/$1/;
-		$decimal = $2;
-		
-		while($rounded =~ s/(\d+)(\d\d\d)/$1\,$2/){}
-		
-		print "\t$key => $rounded", $decimal ? "$decimal\n" : "\n";
-	}
+
+	$rounded =~ s/(\d+)(\.\d+)?/$1/;
+	my $decimal = $2;
+	
+	while($rounded =~ s/(\d+)(\d\d\d)/$1\,$2/){}
+	
+	print "\t$key => $rounded", $decimal ? "$decimal" : '', "\n";
+	#}
 
 	print "\n";
 }
