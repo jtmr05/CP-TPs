@@ -156,6 +156,7 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 
 	for(size_t iter = 0; iter < MAX_ITERS; ++iter){
 
+		// Get the pointers to be used for reduction
 		float* const xs = next_cv.xs;
 		float* const ys = next_cv.ys;
 		size_t* const sizes = next_cv.sizes;
@@ -165,13 +166,17 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 
 		for(size_t i = 0; i < tsv.size; ++i){
 
-			Sample const s    = (Sample){ .x = tsv.data[i].x, .y = tsv.data[i].y };
-			long  new_cluster = 0;
-			float min_dist    = distance_sample((Sample){ .x = curr_cv.xs[0], .y = curr_cv.ys[0] }, s);
+			Sample const s   = (Sample){ .x = tsv.data[i].x, .y = tsv.data[i].y };
+			Sample centroid  = (Sample){ .x = curr_cv.xs[0], .y = curr_cv.ys[0] };
+			float min_dist   = distance_sample(s, centroid);
+
+			long new_cluster = 0;
+
 
 			for(size_t j = 1; j < curr_cv.size; ++j){
 
-				float const tmp_dist = distance_sample((Sample){ .x = curr_cv.xs[j], .y = curr_cv.ys[j] }, s);
+				centroid = (Sample){ .x = curr_cv.xs[j], .y = curr_cv.ys[j] };
+				float const tmp_dist = distance_sample(s, centroid);
 
 				new_cluster = (tmp_dist < min_dist) ? (long) j : new_cluster;
 				min_dist    = (tmp_dist < min_dist) ? tmp_dist : min_dist;
