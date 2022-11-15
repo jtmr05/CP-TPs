@@ -5,7 +5,7 @@ use warnings;
 
 foreach my $fn (@ARGV){
 
-	open my $fh, '<', $fn;
+	open my $fh, '<', $fn or die "$!";
 
 	my %sums = ( 'cycles' => 0, 'instructions' => 0, 'seconds time' => 0 );
 	my %counts = ( 'cycles' => 0, 'instructions' => 0, 'seconds time' => 0 );
