@@ -82,7 +82,7 @@ $(PCH_INC_FILES): $(INC_DIR)/%.$(PCH_EXT) : $(INC_DIR)/%
 
 .PHONY: $(INFO_OPT_FILE)
 $(INFO_OPT_FILE):
-	@rm -f $^
+	@rm -f $@
 
 #'clean' doesn't represent an actual file generating recipe
 .PHONY: clean
