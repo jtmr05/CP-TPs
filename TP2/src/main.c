@@ -43,7 +43,7 @@ int main(int const argc, char const* const* const argv){
 
 	if(params[2] == 0){
 		params[2] = 1;
-		fprintf(stderr, "\033[36;1mNote:\033[0m Number of threads not specified; assuming 1 thread\n\n");
+		fprintf(stderr, "\033[1m%s: \033[0m\033[36;1mnote:\033[0m number of threads not specified; assuming 1 thread\n\n", argv[0]);
 	}
 
 
