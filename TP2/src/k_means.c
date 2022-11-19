@@ -66,8 +66,8 @@ float distance_sample(Sample const s1, Sample const s2){
 }
 
 static inline
-void delete_tagged_sample_vector(TaggedSampleVector const tsv){
-	free(tsv.data);
+void delete_tagged_sample_vector(TaggedSampleVector const* const tsv){
+	free(tsv->data);
 }
 
 
@@ -123,10 +123,10 @@ void swap_data_cluster_vector(ClusterVector* const p1, ClusterVector* const p2){
 }
 
 static inline
-void delete_cluster_vector(ClusterVector const cv){
-	free(cv.xs);
-	free(cv.ys);
-	free(cv.sizes);
+void delete_cluster_vector(ClusterVector const* const cv){
+	free(cv->xs);
+	free(cv->ys);
+	free(cv->sizes);
 }
 
 static inline
@@ -211,7 +211,7 @@ void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS, siz
 
 	printf("Iterations: %lu\n", MAX_ITERS);
 
-	delete_cluster_vector(curr_cv);
-	delete_cluster_vector(next_cv);
-	delete_tagged_sample_vector(tsv);
+	delete_cluster_vector(&curr_cv);
+	delete_cluster_vector(&next_cv);
+	delete_tagged_sample_vector(&tsv);
 }
