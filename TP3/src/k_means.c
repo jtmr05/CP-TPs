@@ -8,9 +8,13 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 
-size_t nTreads=1024;
 
+
+static const size_t NUMBER_OF_THREADS = 1024;
+static const size_t NUMBER_OF_BLOCKS = 1;
 static size_t const MAX_ITERS = 20;
+
+
 
 //Samples
 
@@ -29,7 +33,7 @@ typedef struct {
 
 typedef struct {
 
-    TaggedSample* const data;
+    TaggedSample* data;
     size_t const size;
 
 } TaggedSampleVector;
@@ -38,10 +42,12 @@ typedef struct {
 static inline
 TaggedSampleVector new_tagged_sample_vector(size_t const size){
 
-    TaggedSampleVector const tsv = (TaggedSampleVector){
-        .data = malloc(sizeof *(tsv.data) * size),
+    TaggedSampleVector tsv = (TaggedSampleVector){
+        .data = NULL,
         .size = size
     };
+
+    cudaMalloc(&tsv.data, sizeof *(tsv.data) * size);
 
     return tsv;
 }
@@ -69,7 +75,7 @@ float distance_sample(Sample const s1, Sample const s2){
 
 static inline
 void delete_tagged_sample_vector(TaggedSampleVector const* const tsv){
-    free(tsv->data);
+    cudaFree(tsv->data);
 }
 
 
@@ -78,9 +84,9 @@ void delete_tagged_sample_vector(TaggedSampleVector const* const tsv){
 
 typedef struct {
 
-    float* xs;
-    float* ys;
-    size_t* sizes;
+    __shared__ float* xs;
+    __shared__ float* ys;
+    __shared__ size_t* sizes;
     size_t const size;
 
 } ClusterVector;
@@ -88,12 +94,16 @@ typedef struct {
 static inline
 ClusterVector new_cluster_vector(size_t const NUMBER_OF_CLUSTERS) {
 
-    ClusterVector const cv = (ClusterVector){
-        .xs = malloc(sizeof *(cv.xs) * NUMBER_OF_CLUSTERS),
-        .ys = malloc(sizeof *(cv.ys) * NUMBER_OF_CLUSTERS),
-        .sizes = malloc(sizeof *(cv.sizes) * NUMBER_OF_CLUSTERS),
+    ClusterVector cv = (ClusterVector){
+        .xs = NULL,
+        .ys = NULL,
+        .sizes = NULL,
         .size = NUMBER_OF_CLUSTERS
     };
+
+    cudaMalloc(&cv.xs, sizeof *(cv.xs) * NUMBER_OF_CLUSTERS);
+    cudaMalloc(&cv.ys, sizeof *(cv.ys) * NUMBER_OF_CLUSTERS);
+    cudaMalloc(&cv.sizes, sizeof *(cv.sizes) * NUMBER_OF_CLUSTERS);
 
     return cv;
 }
