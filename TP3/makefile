@@ -18,8 +18,8 @@ BIN_DIR 		:= bin
 
 
 #files
-SRC_FILES	 	:= $(shell find $(SRC_DIR) -name "*.c")
-OBJ_FILES		:= $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SRC_FILES))
+SRC_FILES	 	:= $(shell find $(SRC_DIR) -name "*.c" -o -name "*.cu")
+OBJ_FILES		:= $(patsubst $(SRC_DIR)/%,$(OBJ_DIR)/%.o,$(SRC_FILES))
 INC_FILES		:= $(shell find $(INC_DIR) -name "*.h")
 PCH_INC_FILES 	:=
 
@@ -29,14 +29,13 @@ INFO_OPT_FILE	:= opt_info.txt
 
 
 #compiler
-CC 				:= gcc
+CC 				:= nvcc
 
 #language standard to be used
-STD				:= c11
+STD				:= c++11
 
 #compiler flags
-CFLAGS 			:= -I$(INC_DIR) -O3 -Wall -Wextra -Winline -Wsign-conversion -pedantic -std=$(STD) -DNDEBUG -fopt-info-optall-note-optimized-missed=$(INFO_OPT_FILE) -fopenmp
-
+CFLAGS 			:= -I$(INC_DIR) -O0 -g  -std=$(STD) -arch=sm_50 -DNDEBUG 
 #linker flags (e.g. -L/path/to/lib)
 LDFLAGS			:=
 
@@ -73,7 +72,7 @@ $(BIN): $(PCH_INC_FILES) $(OBJ_FILES)
 #generate each object file according to the corresponding source file
 #create directories as needed
 #https://www.gnu.org/software/make/manual/make.html#Static-Pattern
-$(OBJ_FILES): $(OBJ_DIR)/%.o : $(SRC_DIR)/%.c
+$(OBJ_FILES): $(OBJ_DIR)/%.o : $(SRC_DIR)/%
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c $< -o $@
 
