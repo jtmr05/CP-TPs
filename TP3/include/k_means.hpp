@@ -1,14 +1,18 @@
-#ifndef K_MEANS_H
-#define K_MEANS_H
+#ifndef K_MEANS_HPP
+#define K_MEANS_HPP
 
-#include <stddef.h>
+#include <cstddef>
 
 
+
+namespace kmeans_cuda {
 
 void set_seed(unsigned int const seed);
 
 void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS);
 
+}
 
 
-#endif //K_MEANS_H
+
+#endif //K_MEANS_HPP

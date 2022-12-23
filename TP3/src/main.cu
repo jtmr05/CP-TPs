@@ -1,50 +1,54 @@
-#include "k_means.h"
+#include "k_means.hpp"
 
-#include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
+#include <cstdio>
+#include <regex>
+#include <optional>
+#include <array>
 
 
-static unsigned int const SEED = 10;
 
-static char const* const REGEX_COMMAND = "perl -e 'exit (($ARGV[0] =~ m/^\\+?(\\d+)$/) ? ($1 == 0) : 1);'";
+static unsigned int constexpr SEED = 10;
 
+
+
+static inline
+std::optional<size_t> from_string(char const* const c_str){
+	
+	static std::regex const pattern { "^(\\+?\\d+)$" };
+
+	if(std::regex_match(c_str, pattern))
+
+		return std::make_optional(std::stoul(c_str));
+
+	return std::nullopt;
+}
 
 int main(int const argc, char const* const* const argv){
 
-	size_t params[2] = { 0 };
+	std::array<size_t, 2> params;
 
 	if(argc != 3){
-		fprintf(stderr, "usage: %s <SAMPLES> <CLUSTERS>\n", argv[0]);
+		std::fprintf(stderr, "usage: %s <SAMPLES> <CLUSTERS>\n", argv[0]);
 		return 2;
 	}
 
 
-	for(int i = 1; i < argc; ++i){
+	for(size_t i = 1; i < static_cast<size_t>(argc); ++i){
 
-		size_t const size = strlen(REGEX_COMMAND) + strlen(argv[i]) + 2;
-		char* const command = (char*) malloc(size);
+		auto const res = from_string(argv[i]);
 
-		snprintf(command, size, "%s %s", REGEX_COMMAND, argv[i]);
-
-		if(system(command) == 0)
-			params[i - 1] = (size_t) atol(argv[i]);
+		if(res.has_value())
+			params.at(i - 1) = res.value();
 
 		else {
-
-			fprintf(stderr, "%s: invalid argument '%s' (must be a positive integer)\n", argv[0], argv[i]);
-			free(command);
+			std::fprintf(stderr, "%s: invalid argument '%s' (must be a positive integer)\n", argv[0], argv[i]);
 			return 1;
 		}
-
-		free(command);
 	}
 
 
-	set_seed(SEED);
-
-	kmeans(params[0], params[1]);
+	kmeans_cuda::set_seed(SEED);
+	kmeans_cuda::kmeans(params.at(0), params.at(1));
 
 	return 0;
 }

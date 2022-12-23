@@ -18,13 +18,12 @@ BIN_DIR 		:= bin
 
 
 #files
-SRC_FILES	 	:= $(shell find $(SRC_DIR) -name "*.c" -o -name "*.cu")
-OBJ_FILES		:= $(patsubst $(SRC_DIR)/%,$(OBJ_DIR)/%.o,$(SRC_FILES))
-INC_FILES		:= $(shell find $(INC_DIR) -name "*.h")
+SRC_FILES	 	:= $(shell find $(SRC_DIR) -name "*.cu")
+OBJ_FILES		:= $(patsubst $(SRC_DIR)/%.cu,$(OBJ_DIR)/%.o,$(SRC_FILES))
+INC_FILES		:= $(shell find $(INC_DIR) -name "*.hpp")
 PCH_INC_FILES 	:=
 
 BIN		 		:= $(BIN_DIR)/k_means
-INFO_OPT_FILE	:= opt_info.txt
 
 
 
@@ -32,10 +31,11 @@ INFO_OPT_FILE	:= opt_info.txt
 CC 				:= nvcc
 
 #language standard to be used
-STD				:= c++11
+STD				:= c++17
 
 #compiler flags
-CFLAGS 			:= -I$(INC_DIR) -O0 -g  -std=$(STD) -arch=sm_50 -DNDEBUG 
+CFLAGS 			:= -I$(INC_DIR) -O0 -g -std=$(STD) -arch=sm_35 -DNDEBUG -Wno-deprecated-gpu-targets
+
 #linker flags (e.g. -L/path/to/lib)
 LDFLAGS			:=
 
@@ -72,7 +72,7 @@ $(BIN): $(PCH_INC_FILES) $(OBJ_FILES)
 #generate each object file according to the corresponding source file
 #create directories as needed
 #https://www.gnu.org/software/make/manual/make.html#Static-Pattern
-$(OBJ_FILES): $(OBJ_DIR)/%.o : $(SRC_DIR)/%
+$(OBJ_FILES): $(OBJ_DIR)/%.o : $(SRC_DIR)/%.cu
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -96,10 +96,10 @@ endif
 
 
 # number of threads to be used
-THREADS 		:= 4
-
-runseq: $(BIN)
-	./$^ 10000000 ${CP_CLUSTERS}
-
-runpar: $(BIN)
-	./$^ 10000000 ${CP_CLUSTERS} $(THREADS)
+#THREADS 		:= 4
+#
+#runseq: $(BIN)
+#	./$^ 10000000 ${CP_CLUSTERS}
+#
+#runpar: $(BIN)
+#	./$^ 10000000 ${CP_CLUSTERS} $(THREADS)
