@@ -10,7 +10,6 @@
 #include <cuda_fp16.h>
 
 
-
 namespace kmeans_cuda {
 
 static size_t constexpr NUMBER_OF_THREADS_PER_BLOCK = 4;
@@ -19,8 +18,7 @@ static size_t constexpr NUMBER_OF_ITERATIONS        = 20;
 
 // long size_t
 // needed because CUDA doesn't suport atomic operations on size_t
-typedef unsigned long long lsize_t;  
-
+typedef unsigned long long lsize_t;
 
 
 // Samples
@@ -35,7 +33,7 @@ struct Sample {
 
 struct TaggedSample {
 
-    float const x, y;
+    float x, y;
     long tag;
 
     TaggedSample(float const x, float const y, long const tag) : x(x), y(y), tag(tag) {}
@@ -47,9 +45,7 @@ struct TaggedSampleVector {
     size_t const size;
 
     TaggedSampleVector(size_t const size) : data(nullptr), size(size) {
-        TaggedSample* ptr = nullptr;
-        cudaMalloc(&ptr, sizeof *(this->data) * size);
-        this->data = ptr;
+        cudaMalloc(&(this->data), sizeof *(this->data) * size);
     }
 
     ~TaggedSampleVector(){
@@ -70,7 +66,7 @@ struct TaggedSampleVector {
 };
 
 
-__device__ static inline 
+__device__ static inline
 float distance_sample(Sample const s1, Sample const s2){
 
     float const x_diff = s1.x - s2.x;
@@ -80,7 +76,7 @@ float distance_sample(Sample const s1, Sample const s2){
 }
 
 template<typename T>
-__device__ static inline 
+__device__ static inline
 void swap_pointers(T*& p1, T*& p2){
 
     T* const tmp = p1;
@@ -89,10 +85,10 @@ void swap_pointers(T*& p1, T*& p2){
 }
 
 template<typename T>
-__device__ static inline 
-void reset(T* const p, size_t const size){
+__device__ static inline
+void reset(T* const p, size_t const nmemb){
 
-    for (size_t i = 0; i < size; i++){
+    for (size_t i = 0; i < nmemb; i++){
         p[i] = static_cast<T>(0);
     }
 }
@@ -111,7 +107,7 @@ T* place_into_byte_arr(std::byte* const base, size_t const size){
     return obj;
 }
 
-__global__ static 
+__global__ static
 void kmeans_kernel(TaggedSampleVector const& tsv, size_t const NUMBER_OF_CLUSTERS){
 
     extern __shared__ std::byte shared_memory[];
@@ -178,7 +174,7 @@ void kmeans_kernel(TaggedSampleVector const& tsv, size_t const NUMBER_OF_CLUSTER
                 next_xs[i] /= next_sizes[i];
                 next_ys[i] /= next_sizes[i];
             }
-            
+
             swap_pointers(curr_xs, next_xs);
             swap_pointers(curr_ys, next_ys);
             swap_pointers(curr_sizes, next_sizes);

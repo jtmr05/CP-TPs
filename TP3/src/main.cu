@@ -6,9 +6,7 @@
 #include <array>
 
 
-
 static unsigned int constexpr SEED = 10;
-
 
 
 static inline
