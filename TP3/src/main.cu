@@ -39,7 +39,7 @@ int main(int const argc, char const* const* const argv){
 			params.at(i - 1) = res.value();
 
 		else {
-			std::fprintf(stderr, "%s: invalid argument '%s' (must be a positive integer)\n", argv[0], argv[i]);
+			std::fprintf(stderr, "%s: invalid argument '%s': Not a positive integer\n", argv[0], argv[i]);
 			return 1;
 		}
 	}

@@ -1,7 +1,6 @@
 #include "k_means.hpp"
 
 #include <cstddef>
-#include <cstdlib>
 #include <cstdio>
 #include <new>
 
@@ -37,37 +36,43 @@ struct TaggedSample {
     float x, y;
     long tag;
 
-    TaggedSample() = default;
     TaggedSample(float const x, float const y, long const tag) : x(x), y(y), tag(tag) {}
 };
 
-struct DeviceTaggedSampleVector {
+struct TaggedSampleVector {
 
     TaggedSample* data;
     size_t const size;
+    //true if memory pointed by data was allocated
+    //when constructing an object of this class
+    bool const is_owner;
 
-    DeviceTaggedSampleVector(TaggedSample* const data, size_t const size) : data(data), size(size) {}
-};
+    TaggedSampleVector(size_t const size) : data(nullptr), size(size), is_owner(true) {
+        cudaMalloc(&(this->data), sizeof *(this->data) * size);
+    }
 
-struct HostTaggedSampleVector {
+    TaggedSampleVector(TaggedSampleVector const& other) : 
+        data(other.data), 
+        size(other.size), 
+        is_owner(false) {}
 
-    TaggedSample* data;
-    size_t const size;
+    TaggedSampleVector(TaggedSampleVector&& other) = delete;
 
-    HostTaggedSampleVector(size_t const size) : data(new TaggedSample[size]), size(size) {}
-
-    ~HostTaggedSampleVector(){
-        delete[] this->data;
+    ~TaggedSampleVector(){
+        if(this->is_owner)
+            cudaFree(this->data);
     }
 
     void fill() const {
 
-        for(size_t i = 0; i < this->size; ++i){
+        for (size_t i = 0; i < this->size; ++i){
 
             float const x = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
             float const y = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
 
-            this->data[i] = { x, y, -1 };
+            TaggedSample const ts { x, y, -1};
+
+            cudaMemcpy(this->data + i, &ts, sizeof(ts), cudaMemcpyKind::cudaMemcpyHostToDevice);
         }
     }
 };
@@ -98,7 +103,7 @@ public:
         if(this->size < this->offset + requested_bytes)
             return nullptr;
 
-        T* const obj = new(this->begin + this->offset) T[nmemb];
+        T* const obj = new(this->begin + this->offset) T[threadIdx.x == 0 ? nmemb : 0];
         this->offset += requested_bytes;
         return obj;
     }
@@ -143,30 +148,26 @@ T const& min(T const& a, T const& b){
     return (a < b) ? a : b;
 }
 
+
+//passing tsv by copy is important!
 __global__ static
-void kmeans_kernel(DeviceTaggedSampleVector const* const tsv_ptr, size_t const number_of_clusters, size_t const byte_buffer_size){
-
-    DeviceTaggedSampleVector const& tsv = *tsv_ptr;
-
+void kmeans_kernel(TaggedSampleVector const tsv, size_t const number_of_clusters, size_t const byte_buffer_size){
 
     extern __shared__ std::byte byte_buffer[];
 
-    float* curr_xs = nullptr; float* curr_ys = nullptr; lsize_t* curr_sizes = nullptr;
-    float* next_xs = nullptr; float* next_ys = nullptr; lsize_t* next_sizes = nullptr;
+
+    MemoryPool mp { byte_buffer, byte_buffer_size };
+
+    auto curr_xs    = mp.get<float>(number_of_clusters);
+    auto curr_ys    = mp.get<float>(number_of_clusters);
+    auto curr_sizes = mp.get<lsize_t>(number_of_clusters);
+
+    auto next_xs    = mp.get<float>(number_of_clusters);
+    auto next_ys    = mp.get<float>(number_of_clusters);
+    auto next_sizes = mp.get<lsize_t>(number_of_clusters);
 
 
     if(threadIdx.x == 0){
-
-        MemoryPool mp { byte_buffer, byte_buffer_size };
-
-        curr_xs    = mp.get<float>(number_of_clusters);
-        curr_ys    = mp.get<float>(number_of_clusters);
-        curr_sizes = mp.get<lsize_t>(number_of_clusters);
-
-        next_xs    = mp.get<float>(number_of_clusters);
-        next_ys    = mp.get<float>(number_of_clusters);
-        next_sizes = mp.get<lsize_t>(number_of_clusters);
-
 
         for(size_t i = 0; i < number_of_clusters; ++i){
             curr_xs[i] = tsv.data[i].x;
@@ -252,34 +253,18 @@ void kmeans_kernel(DeviceTaggedSampleVector const* const tsv_ptr, size_t const n
 
 void kmeans(size_t const number_of_samples, size_t const number_of_clusters){
 
-    DeviceTaggedSampleVector* device_tsv = nullptr;
-
-    {
-        HostTaggedSampleVector const host_tsv { number_of_samples };
-        host_tsv.fill();
-
-        TaggedSample* dtsv_data = nullptr;
-        cudaMalloc(&dtsv_data, sizeof *dtsv_data * host_tsv.size);
-        cudaMemcpy(dtsv_data, host_tsv.data, sizeof *host_tsv.data * host_tsv.size, cudaMemcpyKind::cudaMemcpyHostToDevice);
-
-
-        DeviceTaggedSampleVector const tmp_dtsv { dtsv_data, host_tsv.size };
-
-        cudaMalloc(&device_tsv, sizeof *device_tsv);
-        cudaMemcpy(device_tsv, &tmp_dtsv, sizeof tmp_dtsv, cudaMemcpyKind::cudaMemcpyHostToDevice);
-    }
-
+    TaggedSampleVector tsv { number_of_samples };
+    tsv.fill();
 
     size_t const shared_mem_size = (4 * sizeof(float) + 2 * sizeof(lsize_t)) * number_of_clusters;
 
-    kmeans_kernel<<<
-        NUMBER_OF_BLOCKS_PER_GRID, NUMBER_OF_THREADS_PER_BLOCK, shared_mem_size
-        >>>(
-            device_tsv, number_of_clusters, shared_mem_size
-    );
-
-    cudaFree(device_tsv->data);
-    cudaFree(device_tsv);
+    kmeans_kernel
+        <<<
+            NUMBER_OF_BLOCKS_PER_GRID, NUMBER_OF_THREADS_PER_BLOCK, shared_mem_size
+        >>>
+        (
+            tsv, number_of_clusters, shared_mem_size
+        );
 }
 
 }
