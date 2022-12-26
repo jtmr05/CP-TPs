@@ -1,5 +1,6 @@
 #include "k_means.hpp"
 
+#include <cstddef>
 #include <cstdlib>
 #include <cstdio>
 #include <new>
@@ -36,32 +37,70 @@ struct TaggedSample {
     float x, y;
     long tag;
 
+    TaggedSample() = default;
     TaggedSample(float const x, float const y, long const tag) : x(x), y(y), tag(tag) {}
 };
 
-struct TaggedSampleVector {
+struct DeviceTaggedSampleVector {
 
     TaggedSample* data;
     size_t const size;
 
-    TaggedSampleVector(size_t const size) : data(nullptr), size(size) {
-        cudaMalloc(&(this->data), sizeof *(this->data) * size);
-    }
+    DeviceTaggedSampleVector(TaggedSample* const data, size_t const size) : data(data), size(size) {}
+};
 
-    ~TaggedSampleVector(){
-        cudaFree(this->data);
+struct HostTaggedSampleVector {
+
+    TaggedSample* data;
+    size_t const size;
+
+    HostTaggedSampleVector(size_t const size) : data(new TaggedSample[size]), size(size) {}
+
+    ~HostTaggedSampleVector(){
+        delete[] this->data;
     }
 
     void fill() const {
 
-        for (size_t i = 0; i < this->size; ++i){
+        for(size_t i = 0; i < this->size; ++i){
 
             float const x = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
             float const y = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
 
-            TaggedSample const ts { x, y, -1};
-            cudaMemcpy(this->data + i, &ts, sizeof(ts), cudaMemcpyHostToDevice);
+            this->data[i] = { x, y, -1 };
         }
+    }
+};
+
+
+class MemoryPool {
+
+private:
+
+    std::byte* const begin;
+    size_t const size;    //for the sake of completeness
+    size_t offset;
+
+public:
+
+    __device__
+    MemoryPool(std::byte* const buffer, size_t const buffer_size) :
+        begin(buffer),
+        size(buffer_size),
+        offset(0) {}
+
+    template<typename T>
+    __device__
+    T* get(size_t const nmemb){
+
+        size_t const requested_bytes = sizeof(T) * nmemb;
+
+        if(this->size < this->offset + requested_bytes)
+            return nullptr;
+
+        T* const obj = new(this->begin + this->offset) T[nmemb];
+        this->offset += requested_bytes;
+        return obj;
     }
 };
 
@@ -88,7 +127,7 @@ template<typename T>
 __device__ static inline
 void reset(T* const p, size_t const nmemb){
 
-    for (size_t i = 0; i < nmemb; i++){
+    for(size_t i = 0; i < nmemb; i++){
         p[i] = static_cast<T>(0);
     }
 }
@@ -97,54 +136,61 @@ void set_seed(unsigned int const seed){
     std::srand(seed);
 }
 
+
 template<typename T>
 __device__ static inline
-T* place_into_byte_arr(std::byte* const base, size_t const size){
-
-    static size_t offset = 0;
-    T* const obj = new(base + offset) T[size];
-    offset += sizeof *obj * size;
-    return obj;
+T const& min(T const& a, T const& b){
+    return (a < b) ? a : b;
 }
 
 __global__ static
-void kmeans_kernel(TaggedSampleVector const& tsv, size_t const NUMBER_OF_CLUSTERS){
+void kmeans_kernel(DeviceTaggedSampleVector const* const tsv_ptr, size_t const number_of_clusters, size_t const byte_buffer_size){
 
-    extern __shared__ std::byte shared_memory[];
+    DeviceTaggedSampleVector const& tsv = *tsv_ptr;
+
+
+    extern __shared__ std::byte byte_buffer[];
 
     float* curr_xs = nullptr; float* curr_ys = nullptr; lsize_t* curr_sizes = nullptr;
     float* next_xs = nullptr; float* next_ys = nullptr; lsize_t* next_sizes = nullptr;
 
 
-    if (threadIdx.x == 0){
+    if(threadIdx.x == 0){
 
-        curr_xs    = place_into_byte_arr<float>(shared_memory,   NUMBER_OF_CLUSTERS);
-        curr_ys    = place_into_byte_arr<float>(shared_memory,   NUMBER_OF_CLUSTERS);
-        curr_sizes = place_into_byte_arr<lsize_t>(shared_memory, NUMBER_OF_CLUSTERS);
+        MemoryPool mp { byte_buffer, byte_buffer_size };
 
-        next_xs    = place_into_byte_arr<float>(shared_memory,   NUMBER_OF_CLUSTERS);
-        next_ys    = place_into_byte_arr<float>(shared_memory,   NUMBER_OF_CLUSTERS);
-        next_sizes = place_into_byte_arr<lsize_t>(shared_memory, NUMBER_OF_CLUSTERS);
+        curr_xs    = mp.get<float>(number_of_clusters);
+        curr_ys    = mp.get<float>(number_of_clusters);
+        curr_sizes = mp.get<lsize_t>(number_of_clusters);
 
-        for (size_t i = 0; i < NUMBER_OF_CLUSTERS; ++i){
+        next_xs    = mp.get<float>(number_of_clusters);
+        next_ys    = mp.get<float>(number_of_clusters);
+        next_sizes = mp.get<lsize_t>(number_of_clusters);
+
+
+        for(size_t i = 0; i < number_of_clusters; ++i){
             curr_xs[i] = tsv.data[i].x;
             curr_ys[i] = tsv.data[i].y;
             curr_sizes[i] = 0;
         }
 
-        reset(next_xs, NUMBER_OF_CLUSTERS);
-        reset(next_ys, NUMBER_OF_CLUSTERS);
-        reset(next_sizes, NUMBER_OF_CLUSTERS);
+        reset(next_xs, number_of_clusters);
+        reset(next_ys, number_of_clusters);
+        reset(next_sizes, number_of_clusters);
     }
 
-    __syncthreads();
 
+    size_t const chunk_size = (tsv.size / NUMBER_OF_THREADS_PER_BLOCK) + 1;
+    size_t const begin      = threadIdx.x * chunk_size;
+    size_t const end        = min((threadIdx.x + 1) * chunk_size, tsv.size);
 
-    size_t const local_size = (tsv.size / NUMBER_OF_THREADS_PER_BLOCK) + 1;
+    for(size_t iter = 0; iter < NUMBER_OF_ITERATIONS; ++iter){
 
-    for (size_t iter = 0; iter < NUMBER_OF_ITERATIONS; ++iter){
+        //sync all threads before an iteration
+        //ensures current clusters aren't being written
+        __syncthreads();
 
-        for (size_t i = threadIdx.x * local_size; i < (threadIdx.x + 1) * local_size && i < tsv.size; ++i){
+        for(size_t i = begin; i < end; ++i){
 
             Sample const s  { tsv.data[i].x, tsv.data[i].y };
             Sample centroid { curr_xs[0], curr_ys[0] };
@@ -152,25 +198,28 @@ void kmeans_kernel(TaggedSampleVector const& tsv, size_t const NUMBER_OF_CLUSTER
             float min_dist   = distance_sample(s, centroid);
             long new_cluster = 0;
 
-            for (size_t j = 1; j < NUMBER_OF_CLUSTERS; ++j){
+            for(size_t j = 1; j < number_of_clusters; ++j){
 
                 centroid = { curr_xs[j], curr_ys[j] };
                 float const tmp_dist = distance_sample(s, centroid);
 
                 new_cluster = (tmp_dist < min_dist) ? static_cast<long>(j) : new_cluster;
-                min_dist    = (tmp_dist < min_dist) ? tmp_dist : min_dist;
+                min_dist    = min(tmp_dist, min_dist);
             }
 
             tsv.data[i].tag = new_cluster;
 
-            atomicAdd(curr_xs + new_cluster, s.x);
-            atomicAdd(curr_ys + new_cluster, s.y);
-            atomicAdd(curr_sizes + new_cluster, 1ULL);
+            atomicAdd(next_xs + new_cluster, s.x);
+            atomicAdd(next_ys + new_cluster, s.y);
+            atomicAdd(next_sizes + new_cluster, 1ULL);
         }
 
-        if (threadIdx.x == 0){
+        //ensure all threads have processed their assigned chunk
+        __syncthreads();
 
-            for (size_t i = 0; i < NUMBER_OF_CLUSTERS; ++i){
+        if(threadIdx.x == 0){
+
+            for(size_t i = 0; i < number_of_clusters; ++i){
                 next_xs[i] /= next_sizes[i];
                 next_ys[i] /= next_sizes[i];
             }
@@ -179,18 +228,16 @@ void kmeans_kernel(TaggedSampleVector const& tsv, size_t const NUMBER_OF_CLUSTER
             swap_pointers(curr_ys, next_ys);
             swap_pointers(curr_sizes, next_sizes);
 
-            reset(next_xs, NUMBER_OF_CLUSTERS);
-            reset(next_ys, NUMBER_OF_CLUSTERS);
-            reset(next_sizes, NUMBER_OF_CLUSTERS);
+            reset(next_xs, number_of_clusters);
+            reset(next_ys, number_of_clusters);
+            reset(next_sizes, number_of_clusters);
         }
-
-        __syncthreads();
     }
 
 
-    if (threadIdx.x == 0){
+    if(threadIdx.x == 0){
 
-        for (size_t i = 0; i < NUMBER_OF_CLUSTERS; ++i){
+        for(size_t i = 0; i < number_of_clusters; ++i){
 
             float const x = curr_xs[i];
             float const y = curr_ys[i];
@@ -203,14 +250,36 @@ void kmeans_kernel(TaggedSampleVector const& tsv, size_t const NUMBER_OF_CLUSTER
     }
 }
 
-void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS){
+void kmeans(size_t const number_of_samples, size_t const number_of_clusters){
 
-    TaggedSampleVector const tsv { NUMBER_OF_SAMPLES };
-    tsv.fill();
+    DeviceTaggedSampleVector* device_tsv = nullptr;
 
-    size_t const allocated_shared_memory = (4 * sizeof(float) + 2 * sizeof(lsize_t)) * NUMBER_OF_CLUSTERS;
+    {
+        HostTaggedSampleVector const host_tsv { number_of_samples };
+        host_tsv.fill();
 
-    kmeans_kernel<<<NUMBER_OF_BLOCKS_PER_GRID, NUMBER_OF_THREADS_PER_BLOCK, allocated_shared_memory>>>(tsv, NUMBER_OF_CLUSTERS);
+        TaggedSample* dtsv_data = nullptr;
+        cudaMalloc(&dtsv_data, sizeof *dtsv_data * host_tsv.size);
+        cudaMemcpy(dtsv_data, host_tsv.data, sizeof *host_tsv.data * host_tsv.size, cudaMemcpyKind::cudaMemcpyHostToDevice);
+
+
+        DeviceTaggedSampleVector const tmp_dtsv { dtsv_data, host_tsv.size };
+
+        cudaMalloc(&device_tsv, sizeof *device_tsv);
+        cudaMemcpy(device_tsv, &tmp_dtsv, sizeof tmp_dtsv, cudaMemcpyKind::cudaMemcpyHostToDevice);
+    }
+
+
+    size_t const shared_mem_size = (4 * sizeof(float) + 2 * sizeof(lsize_t)) * number_of_clusters;
+
+    kmeans_kernel<<<
+        NUMBER_OF_BLOCKS_PER_GRID, NUMBER_OF_THREADS_PER_BLOCK, shared_mem_size
+        >>>(
+            device_tsv, number_of_clusters, shared_mem_size
+    );
+
+    cudaFree(device_tsv->data);
+    cudaFree(device_tsv);
 }
 
 }
