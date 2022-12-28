@@ -1,7 +1,7 @@
 #include "k_means.hpp"
 
 #include <cstdio>
-#include <regex>
+#include <cstdlib>
 #include <optional>
 #include <array>
 
@@ -12,11 +12,10 @@ static unsigned int constexpr SEED = 10;
 static inline
 std::optional<size_t> from_string(char const* const c_str){
 	
-	static std::regex const pattern { "^(\\+?\\d+)$" };
+	long const value = std::atol(c_str);
 
-	if(std::regex_match(c_str, pattern))
-
-		return std::make_optional(std::stoul(c_str));
+	if(value > 0)
+		return std::make_optional(static_cast<size_t>(value));
 
 	return std::nullopt;
 }

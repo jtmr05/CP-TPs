@@ -34,7 +34,7 @@ CC 				:= nvcc
 STD				:= c++17
 
 #compiler flags
-CFLAGS 			:= -I$(INC_DIR) -O0 -g -std=$(STD) -arch=sm_35 -DNDEBUG -Wno-deprecated-gpu-targets
+CFLAGS 			:= -I$(INC_DIR) -O3 -std=$(STD) -arch=sm_35 -DNDEBUG -Wno-deprecated-gpu-targets
 
 #linker flags (e.g. -L/path/to/lib)
 LDFLAGS			:=

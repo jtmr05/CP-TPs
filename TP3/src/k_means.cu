@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <new>
+#include <limits>
 
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -12,9 +13,10 @@
 
 namespace kmeans_cuda {
 
-static size_t constexpr NUMBER_OF_THREADS_PER_BLOCK = 4;
+static size_t constexpr NUMBER_OF_THREADS_PER_BLOCK = 32 * 1;
 static size_t constexpr NUMBER_OF_BLOCKS_PER_GRID   = 1;
 static size_t constexpr NUMBER_OF_ITERATIONS        = 20;
+static float  constexpr MAX_FLOAT_VALUE             = std::numeric_limits<float>::max();
 
 // long size_t
 // needed because CUDA doesn't suport atomic operations on size_t
@@ -51,9 +53,9 @@ struct TaggedSampleVector {
         cudaMalloc(&(this->data), sizeof *(this->data) * size);
     }
 
-    TaggedSampleVector(TaggedSampleVector const& other) : 
-        data(other.data), 
-        size(other.size), 
+    TaggedSampleVector(TaggedSampleVector const& other) :
+        data(other.data),
+        size(other.size),
         is_owner(false) {}
 
     TaggedSampleVector(TaggedSampleVector&& other) = delete;
@@ -121,29 +123,6 @@ float distance_sample(Sample const s1, Sample const s2){
 
 template<typename T>
 __device__ static inline
-void swap_pointers(T*& p1, T*& p2){
-
-    T* const tmp = p1;
-    p1 = p2;
-    p2 = tmp;
-}
-
-template<typename T>
-__device__ static inline
-void reset(T* const p, size_t const nmemb){
-
-    for(size_t i = 0; i < nmemb; i++){
-        p[i] = static_cast<T>(0);
-    }
-}
-
-void set_seed(unsigned int const seed){
-    std::srand(seed);
-}
-
-
-template<typename T>
-__device__ static inline
 T const& min(T const& a, T const& b){
     return (a < b) ? a : b;
 }
@@ -162,11 +141,6 @@ void kmeans_kernel(TaggedSampleVector const tsv, size_t const number_of_clusters
     auto curr_ys    = mp.get<float>(number_of_clusters);
     auto curr_sizes = mp.get<lsize_t>(number_of_clusters);
 
-    auto next_xs    = mp.get<float>(number_of_clusters);
-    auto next_ys    = mp.get<float>(number_of_clusters);
-    auto next_sizes = mp.get<lsize_t>(number_of_clusters);
-
-
     if(threadIdx.x == 0){
 
         for(size_t i = 0; i < number_of_clusters; ++i){
@@ -174,16 +148,19 @@ void kmeans_kernel(TaggedSampleVector const tsv, size_t const number_of_clusters
             curr_ys[i] = tsv.data[i].y;
             curr_sizes[i] = 0;
         }
-
-        reset(next_xs, number_of_clusters);
-        reset(next_ys, number_of_clusters);
-        reset(next_sizes, number_of_clusters);
     }
 
 
-    size_t const chunk_size = (tsv.size / NUMBER_OF_THREADS_PER_BLOCK) + 1;
-    size_t const begin      = threadIdx.x * chunk_size;
-    size_t const end        = min((threadIdx.x + 1) * chunk_size, tsv.size);
+    // relative to the samples vector
+    size_t const tsv_chunk_size = (tsv.size / NUMBER_OF_THREADS_PER_BLOCK) + 1;
+    size_t const begin_tsv_ind  = threadIdx.x * tsv_chunk_size;
+    size_t const end_tsv_ind    = min((threadIdx.x + 1) * tsv_chunk_size, tsv.size);
+
+    // relative to the (implicit) cluster vector
+    size_t const cv_chunk_size = (number_of_clusters / NUMBER_OF_THREADS_PER_BLOCK) + 1;
+    size_t const begin_cv_ind  = threadIdx.x * cv_chunk_size;
+    size_t const end_cv_ind    = min((threadIdx.x + 1) * cv_chunk_size, number_of_clusters);
+
 
     for(size_t iter = 0; iter < NUMBER_OF_ITERATIONS; ++iter){
 
@@ -191,17 +168,15 @@ void kmeans_kernel(TaggedSampleVector const tsv, size_t const number_of_clusters
         //ensures current clusters aren't being written
         __syncthreads();
 
-        for(size_t i = begin; i < end; ++i){
+        for(size_t i = begin_tsv_ind; i < end_tsv_ind; ++i){
 
             Sample const s  { tsv.data[i].x, tsv.data[i].y };
-            Sample centroid { curr_xs[0], curr_ys[0] };
-
-            float min_dist   = distance_sample(s, centroid);
+            float min_dist   = MAX_FLOAT_VALUE;
             long new_cluster = 0;
 
-            for(size_t j = 1; j < number_of_clusters; ++j){
+            for(size_t j = 0; j < number_of_clusters; ++j){
 
-                centroid = { curr_xs[j], curr_ys[j] };
+                Sample const centroid { curr_xs[j], curr_ys[j] };
                 float const tmp_dist = distance_sample(s, centroid);
 
                 new_cluster = (tmp_dist < min_dist) ? static_cast<long>(j) : new_cluster;
@@ -209,29 +184,32 @@ void kmeans_kernel(TaggedSampleVector const tsv, size_t const number_of_clusters
             }
 
             tsv.data[i].tag = new_cluster;
-
-            atomicAdd(next_xs + new_cluster, s.x);
-            atomicAdd(next_ys + new_cluster, s.y);
-            atomicAdd(next_sizes + new_cluster, 1ULL);
         }
 
         //ensure all threads have processed their assigned chunk
         __syncthreads();
 
-        if(threadIdx.x == 0){
 
-            for(size_t i = 0; i < number_of_clusters; ++i){
-                next_xs[i] /= next_sizes[i];
-                next_ys[i] /= next_sizes[i];
+        for(size_t i = begin_cv_ind; i < end_cv_ind; ++i){
+            curr_xs[i] = 0.f;
+            curr_ys[i] = 0.f;
+            curr_sizes[i] = 0;
+        }
+
+        for(size_t i = 0; i < tsv.size; ++i){
+
+            size_t const ind = static_cast<size_t>(tsv.data[i].tag);
+
+            if(begin_cv_ind <= ind && ind < end_cv_ind){
+                curr_xs[ind] += tsv.data[i].x;
+                curr_ys[ind] += tsv.data[i].y;
+                ++curr_sizes[ind];
             }
+        }
 
-            swap_pointers(curr_xs, next_xs);
-            swap_pointers(curr_ys, next_ys);
-            swap_pointers(curr_sizes, next_sizes);
-
-            reset(next_xs, number_of_clusters);
-            reset(next_ys, number_of_clusters);
-            reset(next_sizes, number_of_clusters);
+        for(size_t i = begin_cv_ind; i < end_cv_ind; ++i){
+            curr_xs[i] /= curr_sizes[i];
+            curr_ys[i] /= curr_sizes[i];
         }
     }
 
@@ -251,12 +229,17 @@ void kmeans_kernel(TaggedSampleVector const tsv, size_t const number_of_clusters
     }
 }
 
+
+void set_seed(unsigned int const seed){
+    std::srand(seed);
+}
+
 void kmeans(size_t const number_of_samples, size_t const number_of_clusters){
 
     TaggedSampleVector tsv { number_of_samples };
     tsv.fill();
 
-    size_t const shared_mem_size = (4 * sizeof(float) + 2 * sizeof(lsize_t)) * number_of_clusters;
+    size_t const shared_mem_size = (2 * sizeof(float) + sizeof(lsize_t)) * number_of_clusters;
 
     kmeans_kernel
         <<<

@@ -8,8 +8,6 @@
 
 static unsigned int const SEED = 10;
 
-static char const* const REGEX_COMMAND = "perl -e 'exit (($ARGV[0] =~ m/^\\+?(\\d+)$/) ? ($1 == 0) : 1);'";
-
 
 int main(int const argc, char const* const* const argv){
 
@@ -23,25 +21,18 @@ int main(int const argc, char const* const* const argv){
 
 	for(int i = 1; i < argc; ++i){
 
-		size_t const size = strlen(REGEX_COMMAND) + strlen(argv[i]) + 2;
-		char* const command = malloc(size);
+		long const param = atol(argv[i]);
 
-		snprintf(command, size, "%s %s", REGEX_COMMAND, argv[i]);
-
-		if(system(command) == 0)
-			params[i - 1] = (size_t) atol(argv[i]);
+		if(param > 0)
+			params[i - 1] = (size_t) param;
 
 		else {
-
-			fprintf(stderr, "%s: invalid argument '%s' (must be a positive integer)\n", argv[0], argv[i]);
-			free(command);
+			fprintf(stderr, "%s: invalid argument '%s': Not a positive integer\n", argv[0], argv[i]);
 			return 1;
 		}
-
-		free(command);
 	}
 
-	if(params[2] == 0){
+	if(argc == 3){
 		params[2] = 1;
 		fprintf(stderr, "\033[1m%s: \033[36mnote:\033[0m number of threads not specified; assuming 1 thread\n\n", argv[0]);
 	}
