@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <new>
 #include <limits>
+#include <memory>
 
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -17,10 +18,6 @@ static size_t constexpr NUMBER_OF_THREADS_PER_BLOCK = 32 * 1;
 static size_t constexpr NUMBER_OF_BLOCKS_PER_GRID   = 1;
 static size_t constexpr NUMBER_OF_ITERATIONS        = 20;
 static float  constexpr MAX_FLOAT_VALUE             = std::numeric_limits<float>::max();
-
-// long size_t
-// needed because CUDA doesn't suport atomic operations on size_t
-typedef unsigned long long lsize_t;
 
 
 // Samples
@@ -37,6 +34,8 @@ struct TaggedSample {
 
     float x, y;
     long tag;
+
+    TaggedSample() = default;
 
     TaggedSample(float const x, float const y, long const tag) : x(x), y(y), tag(tag) {}
 };
@@ -67,15 +66,23 @@ struct TaggedSampleVector {
 
     void fill() const {
 
+        auto const tss = std::make_unique<TaggedSample[]>(this->size);
+        float const FRAND_MAX = static_cast<float>(RAND_MAX);
+
         for (size_t i = 0; i < this->size; ++i){
 
-            float const x = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
-            float const y = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
+            float const x = static_cast<float>(std::rand()) / FRAND_MAX;
+            float const y = static_cast<float>(std::rand()) / FRAND_MAX;
 
-            TaggedSample const ts { x, y, -1};
-
-            cudaMemcpy(this->data + i, &ts, sizeof(ts), cudaMemcpyKind::cudaMemcpyHostToDevice);
+            tss[i] = { x, y, -1 };
         }
+
+        cudaMemcpy(
+            this->data,
+            tss.get(),
+            sizeof tss[0] * this->size,
+            cudaMemcpyKind::cudaMemcpyHostToDevice
+        );
     }
 };
 
@@ -130,7 +137,11 @@ T const& min(T const& a, T const& b){
 
 //passing tsv by copy is important!
 __global__ static
-void kmeans_kernel(TaggedSampleVector const tsv, size_t const number_of_clusters, size_t const byte_buffer_size){
+void kmeans_kernel(
+    TaggedSampleVector const tsv,
+    size_t const number_of_clusters,
+    size_t const byte_buffer_size)
+{
 
     extern __shared__ std::byte byte_buffer[];
 
@@ -139,7 +150,7 @@ void kmeans_kernel(TaggedSampleVector const tsv, size_t const number_of_clusters
 
     auto curr_xs    = mp.get<float>(number_of_clusters);
     auto curr_ys    = mp.get<float>(number_of_clusters);
-    auto curr_sizes = mp.get<lsize_t>(number_of_clusters);
+    auto curr_sizes = mp.get<size_t>(number_of_clusters);
 
     if(threadIdx.x == 0){
 
@@ -186,9 +197,9 @@ void kmeans_kernel(TaggedSampleVector const tsv, size_t const number_of_clusters
             tsv.data[i].tag = new_cluster;
         }
 
+
         //ensure all threads have processed their assigned chunk
         __syncthreads();
-
 
         for(size_t i = begin_cv_ind; i < end_cv_ind; ++i){
             curr_xs[i] = 0.f;
@@ -213,17 +224,18 @@ void kmeans_kernel(TaggedSampleVector const tsv, size_t const number_of_clusters
         }
     }
 
-    
+
     __syncthreads();
+
     if(threadIdx.x == 0){
 
         for(size_t i = 0; i < number_of_clusters; ++i){
 
             float const x = curr_xs[i];
             float const y = curr_ys[i];
-            lsize_t const size = curr_sizes[i];
+            size_t const size = curr_sizes[i];
 
-            std::printf("Center: (%.3f, %.3f) : Size: %llu\n", x, y, size);
+            std::printf("Center: (%.3f, %.3f) : Size: %lu\n", x, y, size);
         }
 
         std::printf("Iterations: %lu\n", NUMBER_OF_ITERATIONS);
@@ -240,7 +252,7 @@ void kmeans(size_t const number_of_samples, size_t const number_of_clusters){
     TaggedSampleVector tsv { number_of_samples };
     tsv.fill();
 
-    size_t const shared_mem_size = (2 * sizeof(float) + sizeof(lsize_t)) * number_of_clusters;
+    size_t const shared_mem_size = (2 * sizeof(float) + sizeof(size_t)) * number_of_clusters;
 
     kmeans_kernel
         <<<

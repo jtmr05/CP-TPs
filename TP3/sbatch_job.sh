@@ -3,5 +3,4 @@
 #SBATCH --partition=cpar
 #SBATCH --constraint=k20
 
-bin/k_means $1 $2
-#nvprof bin/k_means $1 $2
+nvprof --cpu-profiling on --cpu-profiling-mode top-down bin/k_means $1 $2
