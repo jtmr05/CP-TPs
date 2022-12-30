@@ -213,7 +213,8 @@ void kmeans_kernel(TaggedSampleVector const tsv, size_t const number_of_clusters
         }
     }
 
-
+    
+    __syncthreads();
     if(threadIdx.x == 0){
 
         for(size_t i = 0; i < number_of_clusters; ++i){
