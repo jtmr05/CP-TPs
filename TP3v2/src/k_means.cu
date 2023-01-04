@@ -1,15 +1,12 @@
 #include "k_means.hpp"
 
-#include <cstddef>
 #include <cstdio>
-#include <new>
 #include <limits>
 #include <memory>
 
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
-
 
 
 namespace kmeans_cuda {
@@ -32,18 +29,18 @@ struct Sample {
     Sample(float const x, float const y) : x{x}, y{y} {}
 };
 
-__device__
-Sample const& operator+=(Sample& a, Sample const& b){
-    a.x += b.x;
-    a.y += b.y;
-    return a;
+__device__ static inline
+Sample const& operator+=(Sample& lhs, Sample const& rhs){
+    lhs.x += rhs.x;
+    lhs.y += rhs.y;
+    return lhs;
 }
 
-__device__
-Sample const& operator/=(Sample& a, size_t const s){
-    a.x /= s;
-    a.y /= s;
-    return a;
+__device__ static inline
+Sample const& operator/=(Sample& lhs, size_t const rhs){
+    lhs.x /= rhs;
+    lhs.y /= rhs;
+    return lhs;
 }
 
 
@@ -101,7 +98,7 @@ void fill_samples_vector(DeviceVector<Sample> const& sv){
     cudaMemcpy(
         sv.data,
         samples.get(),
-        sizeof samples[0] * sv.size,
+        sizeof *samples.get() * sv.size,
         cudaMemcpyKind::cudaMemcpyHostToDevice
     );
 }
@@ -113,16 +110,16 @@ void init_clusters_vector(DeviceVector<Cluster> const &cv, DeviceVector<Sample> 
         cudaMemcpy(
             &cv.data[i].centroid,
             sv.data + i,
-            sizeof cv.data[i].centroid,
+            sizeof sv.data[i],
             cudaMemcpyKind::cudaMemcpyDeviceToDevice
         );
 }
-
 
 static inline
 void reset_clusters_vector(DeviceVector<Cluster> const &cv){
     cudaMemset(cv.data, 0, sizeof *cv.data * cv.size);
 }
+
 
 __device__ static inline
 float distance_sample(Sample const s1, Sample const s2){
@@ -153,18 +150,17 @@ void accumulate_kernel(
         return;
 
 
-    size_t const stride = gridDim.x * blockDim.x;
+    size_t const stride = gridDim.x * blockDim.x; //the number of threads
 
     for(size_t i = thread_uid; i < sv.size; i += stride){
 
         Sample const& s    = sv.data[i];
-
         float min_dist     = MAX_FLOAT_VALUE;
         size_t new_cluster = 0;
 
         for(size_t j = 0; j < cv.size; ++j){
 
-            float const tmp_dist = distance_sample(s, cv.data[j].centroid );
+            float const tmp_dist = distance_sample(s, cv.data[j].centroid);
 
             new_cluster = (tmp_dist < min_dist) ? j : new_cluster;
             min_dist    = min(tmp_dist, min_dist);
