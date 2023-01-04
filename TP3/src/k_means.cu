@@ -66,21 +66,21 @@ struct TaggedSampleVector {
 
     void fill() const {
 
-        auto const tss = std::make_unique<TaggedSample[]>(this->size);
-        float const FRAND_MAX = static_cast<float>(RAND_MAX);
+        std::unique_ptr<TaggedSample[]> const t_samples =
+            std::make_unique<TaggedSample[]>(this->size);
 
         for (size_t i = 0; i < this->size; ++i){
 
-            float const x = static_cast<float>(std::rand()) / FRAND_MAX;
-            float const y = static_cast<float>(std::rand()) / FRAND_MAX;
+            float const x = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
+            float const y = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
 
-            tss[i] = { x, y, -1 };
+            t_samples[i] = { x, y, -1 };
         }
 
         cudaMemcpy(
             this->data,
-            tss.get(),
-            sizeof tss[0] * this->size,
+            t_samples.get(),
+            sizeof t_samples[0] * this->size,
             cudaMemcpyKind::cudaMemcpyHostToDevice
         );
     }
@@ -162,7 +162,7 @@ void kmeans_kernel(
     }
 
 
-    // relative to the samples vector
+    // relative to the (implicit) cluster vector
     size_t const tsv_chunk_size = (tsv.size / NUMBER_OF_THREADS_PER_BLOCK) + 1;
     size_t const begin_tsv_ind  = threadIdx.x * tsv_chunk_size;
     size_t const end_tsv_ind    = min((threadIdx.x + 1) * tsv_chunk_size, tsv.size);
@@ -181,7 +181,7 @@ void kmeans_kernel(
 
         for(size_t i = begin_tsv_ind; i < end_tsv_ind; ++i){
 
-            Sample const s  { tsv.data[i].x, tsv.data[i].y };
+            Sample const s { tsv.data[i].x, tsv.data[i].y };
             float min_dist   = MAX_FLOAT_VALUE;
             long new_cluster = 0;
 
