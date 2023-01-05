@@ -22,10 +22,10 @@ std::optional<size_t> from_string(char const* const c_str){
 
 int main(int const argc, char const* const* const argv){
 
-	std::array<size_t, 2> params;
+	std::array<size_t, 4> params;
 
-	if(argc != 3){
-		std::fprintf(stderr, "usage: %s <SAMPLES> <CLUSTERS>\n", argv[0]);
+	if(argc < 3 || argc > 5){
+		std::fprintf(stderr, "usage: %s <SAMPLES> <CLUSTERS> [BLOCKS] [THREADS]\n", argv[0]);
 		return 2;
 	}
 
@@ -48,9 +48,27 @@ int main(int const argc, char const* const* const argv){
 		}
 	}
 
+	if(argc < 4){
+		params.at(2) = 1;
+		fprintf(
+			stderr,
+			"\033[1m%s: \033[36mnote:\033[0m number of blocks not specified; assuming 1 block\n\n",
+			argv[0]
+		);
+	}
+
+	if(argc < 5){
+		params.at(3) = 1;
+		fprintf(
+			stderr,
+			"\033[1m%s: \033[36mnote:\033[0m number of threads not specified; assuming 1 thread\n\n",
+			argv[0]
+		);
+	}
+
 
 	kmeans_cuda::set_seed(SEED);
-	kmeans_cuda::kmeans(params.at(0), params.at(1));
+	kmeans_cuda::kmeans(params.at(0), params.at(1), params.at(2), params.at(3));
 
 	return 0;
 }

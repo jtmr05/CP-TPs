@@ -9,7 +9,12 @@ namespace kmeans_cuda {
 
 void set_seed(unsigned int const seed);
 
-void kmeans(size_t const NUMBER_OF_SAMPLES, size_t const NUMBER_OF_CLUSTERS);
+void kmeans(
+    size_t const number_of_samples,
+    size_t const number_of_clusters,
+    size_t const number_of_blocks_per_grid,
+    size_t const number_of_threads_per_block
+);
 
 }
 

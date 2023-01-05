@@ -1,21 +1,16 @@
 #include "k_means.hpp"
 
-#include <cstddef>
 #include <cstdio>
-#include <new>
 #include <limits>
 #include <memory>
 
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
-#include <cuda_fp16.h>
 
 
 namespace kmeans_cuda {
 
-static size_t constexpr NUMBER_OF_THREADS_PER_BLOCK = 32 * 1;
-static size_t constexpr NUMBER_OF_BLOCKS_PER_GRID   = 1;
 static size_t constexpr NUMBER_OF_ITERATIONS        = 20;
 static float  constexpr MAX_FLOAT_VALUE             = std::numeric_limits<float>::max();
 
@@ -26,97 +21,99 @@ struct Sample {
 
     float x, y;
 
+    Sample() : x{0.f}, y {0.f} {}
+
     __device__
-    Sample(float const x, float const y) : x(x), y(y) {}
+    Sample(float const x, float const y) : x{x}, y{y} {}
 };
 
-struct TaggedSample {
+__device__ static inline
+Sample const& operator+=(Sample& lhs, Sample const& rhs){
+    lhs.x += rhs.x;
+    lhs.y += rhs.y;
+    return lhs;
+}
 
-    float x, y;
-    long tag;
+__device__ static inline
+Sample const& operator/=(Sample& lhs, size_t const rhs){
+    lhs.x /= rhs;
+    lhs.y /= rhs;
+    return lhs;
+}
 
-    TaggedSample() = default;
 
-    TaggedSample(float const x, float const y, long const tag) : x(x), y(y), tag(tag) {}
-};
+// Clusters
 
-struct TaggedSampleVector {
+//struct Cluster {
+//
+//    Sample centroid;
+//    size_t size;
+//
+//    Cluster() : centroid{}, size{0} {}
+//};
 
-    TaggedSample* data;
+
+// Generic Vector for both Samples and Clusters
+
+template<typename T>
+struct DeviceVector {
+
+    T* data;
     size_t const size;
-    //true if memory pointed by data was allocated
-    //when constructing an object of this class
     bool const is_owner;
 
-    TaggedSampleVector(size_t const size) : data(nullptr), size(size), is_owner(true) {
+    DeviceVector(size_t const size) : data{nullptr}, size{size}, is_owner{true} {
         cudaMalloc(&(this->data), sizeof *(this->data) * size);
     }
 
-    TaggedSampleVector(TaggedSampleVector const& other) :
-        data(other.data),
-        size(other.size),
-        is_owner(false) {}
+    DeviceVector(DeviceVector const& other) :
+        data{other.data},
+        size{other.size},
+        is_owner{false} {}
 
-    TaggedSampleVector(TaggedSampleVector&& other) = delete;
+    DeviceVector(DeviceVector&& other) = delete;
 
-    ~TaggedSampleVector(){
+    ~DeviceVector(){
         if(this->is_owner)
             cudaFree(this->data);
     }
 
-    void fill() const {
-
-        std::unique_ptr<TaggedSample[]> const t_samples =
-            std::make_unique<TaggedSample[]>(this->size);
-
-        for (size_t i = 0; i < this->size; ++i){
-
-            float const x = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
-            float const y = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
-
-            t_samples[i] = { x, y, -1 };
-        }
-
-        cudaMemcpy(
-            this->data,
-            t_samples.get(),
-            sizeof t_samples[0] * this->size,
-            cudaMemcpyKind::cudaMemcpyHostToDevice
-        );
+    void reset() const {
+        cudaMemset(this->data, 0, sizeof *(this->data) * this->size);
     }
 };
 
 
-class MemoryPool {
+static inline
+void fill_samples_vector(DeviceVector<Sample> const& sv){
 
-private:
+    std::unique_ptr<Sample[]> const samples = std::make_unique<Sample[]>(sv.size);
 
-    std::byte* const begin;
-    size_t const size;    //for the sake of completeness
-    size_t offset;
+    for (size_t i = 0; i < sv.size; ++i){
 
-public:
+        float const x = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
+        float const y = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);
 
-    __device__
-    MemoryPool(std::byte* const buffer, size_t const buffer_size) :
-        begin(buffer),
-        size(buffer_size),
-        offset(0) {}
-
-    template<typename T>
-    __device__
-    T* get(size_t const nmemb){
-
-        size_t const requested_bytes = sizeof(T) * nmemb;
-
-        if(this->size < this->offset + requested_bytes)
-            return nullptr;
-
-        T* const obj = new(this->begin + this->offset) T[threadIdx.x == 0 ? nmemb : 0];
-        this->offset += requested_bytes;
-        return obj;
+        samples[i] = { x, y };
     }
-};
+
+    cudaMemcpy(
+        sv.data,
+        samples.get(),
+        sizeof *samples.get() * sv.size,
+        cudaMemcpyKind::cudaMemcpyHostToDevice
+    );
+}
+
+static inline
+void init_clusters_vector(DeviceVector<Sample> const &centroids, DeviceVector<Sample> const &sv){
+    cudaMemcpy(
+        centroids.data,
+        sv.data,
+        sizeof *centroids.data * centroids.size,
+        cudaMemcpyKind::cudaMemcpyDeviceToDevice
+    );
+}
 
 
 __device__ static inline
@@ -130,116 +127,75 @@ float distance_sample(Sample const s1, Sample const s2){
 
 template<typename T>
 __device__ static inline
-T const& min(T const& a, T const& b){
+T min(T const& a, T const& b){
     return (a < b) ? a : b;
 }
 
 
-//passing tsv by copy is important!
+//passing by copy is important!
 __global__ static
-void kmeans_kernel(
-    TaggedSampleVector const tsv,
-    size_t const number_of_clusters,
-    size_t const byte_buffer_size)
+void accumulate_kernel(
+    DeviceVector<Sample> const sv,
+    DeviceVector<Sample> const centroids,
+    DeviceVector<Sample> const accumulator_centroids,
+    DeviceVector<size_t> const accumulator_cluster_sizes)
 {
 
-    extern __shared__ std::byte byte_buffer[];
+    unsigned const thread_uid = blockIdx.x * blockDim.x + threadIdx.x;
+    if(thread_uid >= sv.size)
+        return;
 
 
-    MemoryPool mp { byte_buffer, byte_buffer_size };
+    size_t const stride = gridDim.x * blockDim.x; //the number of threads
 
-    auto curr_xs    = mp.get<float>(number_of_clusters);
-    auto curr_ys    = mp.get<float>(number_of_clusters);
-    auto curr_sizes = mp.get<size_t>(number_of_clusters);
+    for(size_t i = thread_uid; i < sv.size; i += stride){
 
-    if(threadIdx.x == 0){
+        Sample const& s    = sv.data[i];
+        float min_dist     = MAX_FLOAT_VALUE;
+        size_t new_cluster = 0;
 
-        for(size_t i = 0; i < number_of_clusters; ++i){
-            curr_xs[i] = tsv.data[i].x;
-            curr_ys[i] = tsv.data[i].y;
-            curr_sizes[i] = 0;
+        for(size_t j = 0; j < centroids.size; ++j){
+
+            float const tmp_dist = distance_sample(s, centroids.data[j]);
+
+            new_cluster = (tmp_dist < min_dist) ? j : new_cluster;
+            min_dist    = min(tmp_dist, min_dist);
         }
+
+
+        size_t const accumulator_ind = thread_uid * centroids.size + new_cluster;
+        accumulator_centroids.data[accumulator_ind]     += s;
+        accumulator_cluster_sizes.data[accumulator_ind] += 1;
+    }
+}
+
+//passing by copy is important!
+__global__ static
+void update_clusters_kernel(
+    DeviceVector<Sample> const centroids,
+    DeviceVector<size_t> const cluster_sizes,
+    DeviceVector<Sample> const accumulator_centroids,
+    DeviceVector<size_t> const accumulator_cluster_sizes)
+{
+
+    unsigned const thread_uid = blockIdx.x * blockDim.x + threadIdx.x;
+    if(thread_uid >= centroids.size)
+        return;
+
+
+    centroids.data[thread_uid] = { 0.f, 0.f };
+    cluster_sizes.data[thread_uid] = 0;
+
+    for(size_t i = thread_uid; i < accumulator_centroids.size; i += centroids.size){
+
+        centroids.data[thread_uid] += accumulator_centroids.data[i];
+        cluster_sizes.data[thread_uid] += accumulator_cluster_sizes.data[i];
+
+        accumulator_centroids.data[i] = { 0.f, 0.f };
+        accumulator_cluster_sizes.data[i] = 0;
     }
 
-
-    // relative to the (implicit) cluster vector
-    size_t const tsv_chunk_size = (tsv.size / NUMBER_OF_THREADS_PER_BLOCK) + 1;
-    size_t const begin_tsv_ind  = threadIdx.x * tsv_chunk_size;
-    size_t const end_tsv_ind    = min((threadIdx.x + 1) * tsv_chunk_size, tsv.size);
-
-    // relative to the (implicit) cluster vector
-    size_t const cv_chunk_size = (number_of_clusters / NUMBER_OF_THREADS_PER_BLOCK) + 1;
-    size_t const begin_cv_ind  = threadIdx.x * cv_chunk_size;
-    size_t const end_cv_ind    = min((threadIdx.x + 1) * cv_chunk_size, number_of_clusters);
-
-
-    for(size_t iter = 0; iter < NUMBER_OF_ITERATIONS; ++iter){
-
-        //sync all threads before an iteration
-        //ensures current clusters aren't being written
-        __syncthreads();
-
-        for(size_t i = begin_tsv_ind; i < end_tsv_ind; ++i){
-
-            Sample const s { tsv.data[i].x, tsv.data[i].y };
-            float min_dist   = MAX_FLOAT_VALUE;
-            long new_cluster = 0;
-
-            for(size_t j = 0; j < number_of_clusters; ++j){
-
-                Sample const centroid { curr_xs[j], curr_ys[j] };
-                float const tmp_dist = distance_sample(s, centroid);
-
-                new_cluster = (tmp_dist < min_dist) ? static_cast<long>(j) : new_cluster;
-                min_dist    = min(tmp_dist, min_dist);
-            }
-
-            tsv.data[i].tag = new_cluster;
-        }
-
-
-        //ensure all threads have processed their assigned chunk
-        __syncthreads();
-
-        for(size_t i = begin_cv_ind; i < end_cv_ind; ++i){
-            curr_xs[i] = 0.f;
-            curr_ys[i] = 0.f;
-            curr_sizes[i] = 0;
-        }
-
-        for(size_t i = 0; i < tsv.size; ++i){
-
-            size_t const ind = static_cast<size_t>(tsv.data[i].tag);
-
-            if(begin_cv_ind <= ind && ind < end_cv_ind){
-                curr_xs[ind] += tsv.data[i].x;
-                curr_ys[ind] += tsv.data[i].y;
-                ++curr_sizes[ind];
-            }
-        }
-
-        for(size_t i = begin_cv_ind; i < end_cv_ind; ++i){
-            curr_xs[i] /= curr_sizes[i];
-            curr_ys[i] /= curr_sizes[i];
-        }
-    }
-
-
-    __syncthreads();
-
-    if(threadIdx.x == 0){
-
-        for(size_t i = 0; i < number_of_clusters; ++i){
-
-            float const x = curr_xs[i];
-            float const y = curr_ys[i];
-            size_t const size = curr_sizes[i];
-
-            std::printf("Center: (%.3f, %.3f) : Size: %lu\n", x, y, size);
-        }
-
-        std::printf("Iterations: %lu\n", NUMBER_OF_ITERATIONS);
-    }
+    centroids.data[thread_uid] /= cluster_sizes.data[thread_uid];
 }
 
 
@@ -247,20 +203,81 @@ void set_seed(unsigned int const seed){
     std::srand(seed);
 }
 
-void kmeans(size_t const number_of_samples, size_t const number_of_clusters){
+void kmeans(
+    size_t const number_of_samples,
+    size_t const number_of_clusters,
+    size_t const number_of_blocks_per_grid,
+    size_t const number_of_threads_per_block)
+{
 
-    TaggedSampleVector tsv { number_of_samples };
-    tsv.fill();
+    DeviceVector<Sample> const sv { number_of_samples };
+    fill_samples_vector(sv);
 
-    size_t const shared_mem_size = (2 * sizeof(float) + sizeof(size_t)) * number_of_clusters;
+    DeviceVector<Sample> const centroids { number_of_clusters };
+    init_clusters_vector(centroids, sv);
 
-    kmeans_kernel
-        <<<
-            NUMBER_OF_BLOCKS_PER_GRID, NUMBER_OF_THREADS_PER_BLOCK, shared_mem_size
-        >>>
-        (
-            tsv, number_of_clusters, shared_mem_size
-        );
+    DeviceVector<size_t> const cluster_sizes { number_of_clusters };
+
+    DeviceVector<Sample> const accumulator_centroids {
+        number_of_clusters *
+        number_of_blocks_per_grid *
+        number_of_threads_per_block
+    };
+    accumulator_centroids.reset();
+
+    DeviceVector<size_t> const accumulator_cluster_sizes {
+        number_of_clusters *
+        number_of_blocks_per_grid *
+        number_of_threads_per_block
+    };
+    accumulator_centroids.reset();
+
+
+    for(size_t i = 0; i < NUMBER_OF_ITERATIONS; ++i){
+
+        accumulate_kernel
+            <<<
+                number_of_blocks_per_grid, number_of_threads_per_block
+            >>>
+            (
+                sv, centroids, accumulator_centroids, accumulator_cluster_sizes
+            );
+
+        update_clusters_kernel
+            <<<
+                1, number_of_clusters
+            >>>
+            (
+                centroids, cluster_sizes, accumulator_centroids, accumulator_cluster_sizes
+            );
+    }
+
+
+    std::unique_ptr<Sample[]> const final_centroids = std::make_unique<Sample[]>(centroids.size);
+    cudaMemcpy(
+        final_centroids.get(),
+        centroids.data,
+        sizeof *centroids.data * centroids.size,
+        cudaMemcpyKind::cudaMemcpyDeviceToHost
+    );
+
+    std::unique_ptr<size_t[]> const final_cluster_sizes = std::make_unique<size_t[]>(cluster_sizes.size);
+    cudaMemcpy(
+        final_cluster_sizes.get(),
+        cluster_sizes.data,
+        sizeof *cluster_sizes.data * cluster_sizes.size,
+        cudaMemcpyKind::cudaMemcpyDeviceToHost
+    );
+
+    for(size_t i = 0; i < centroids.size; ++i){
+
+        Sample const centroid = final_centroids[i];
+        size_t const size = final_cluster_sizes[i];
+
+        std::printf("Center: (%.3f, %.3f) : Size: %lu\n", centroid.x, centroid.y, size);
+    }
+
+    std::printf("Iterations: %lu\n", NUMBER_OF_ITERATIONS);
 }
 
 }
