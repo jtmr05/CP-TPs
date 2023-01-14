@@ -3,8 +3,13 @@
 use warnings;
 use strict;
 
+# cache sizes are 128kB (L1) and 2MB (L2)
+# 128 * 1000 / 8 = 16_0000
+# 2 * 1000 * 1000 / 8 = 250_000
+# 8 == 2 * sizeof(float)
+
 use constant CLUSTERS   => [4, 20, 32];
-use constant SAMPLES    => [1000];
+use constant SAMPLES    => [15_000, 240_000, 10_000_000];
 use constant THREAD_LIM => 1024;
 use constant BLOCKS		=> 32;
 use constant DIR        => 'benchmarks';
