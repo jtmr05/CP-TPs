@@ -42,17 +42,6 @@ Sample const& operator/=(Sample& lhs, size_t const rhs){
 }
 
 
-// Clusters
-
-//struct Cluster {
-//
-//    Sample centroid;
-//    size_t size;
-//
-//    Cluster() : centroid{}, size{0} {}
-//};
-
-
 // Generic Vector for both Samples and Clusters
 
 template<typename T>
@@ -134,11 +123,11 @@ T min(T const& a, T const& b){
 
 //passing by copy is important!
 __global__ static
-void accumulate_kernel(
+void compute_partial_centroids_kernel(
     DeviceVector<Sample> const sv,
     DeviceVector<Sample> const centroids,
-    DeviceVector<Sample> const accumulator_centroids,
-    DeviceVector<size_t> const accumulator_cluster_sizes)
+    DeviceVector<Sample> const centroids_accumulator,
+    DeviceVector<size_t> const cluster_sizes_accumulator)
 {
 
     unsigned const thread_uid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -164,18 +153,18 @@ void accumulate_kernel(
 
 
         size_t const accumulator_ind = thread_uid * centroids.size + new_cluster;
-        accumulator_centroids.data[accumulator_ind]     += s;
-        accumulator_cluster_sizes.data[accumulator_ind] += 1;
+        centroids_accumulator.data[accumulator_ind]     += s;
+        cluster_sizes_accumulator.data[accumulator_ind] += 1;
     }
 }
 
 //passing by copy is important!
 __global__ static
-void update_clusters_kernel(
+void reduce_centroids_kernel(
     DeviceVector<Sample> const centroids,
     DeviceVector<size_t> const cluster_sizes,
-    DeviceVector<Sample> const accumulator_centroids,
-    DeviceVector<size_t> const accumulator_cluster_sizes)
+    DeviceVector<Sample> const centroids_accumulator,
+    DeviceVector<size_t> const cluster_sizes_accumulator)
 {
 
     unsigned const thread_uid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -186,13 +175,13 @@ void update_clusters_kernel(
     centroids.data[thread_uid] = { 0.f, 0.f };
     cluster_sizes.data[thread_uid] = 0;
 
-    for(size_t i = thread_uid; i < accumulator_centroids.size; i += centroids.size){
+    for(size_t i = thread_uid; i < centroids_accumulator.size; i += centroids.size){
 
-        centroids.data[thread_uid] += accumulator_centroids.data[i];
-        cluster_sizes.data[thread_uid] += accumulator_cluster_sizes.data[i];
+        centroids.data[thread_uid] += centroids_accumulator.data[i];
+        cluster_sizes.data[thread_uid] += cluster_sizes_accumulator.data[i];
 
-        accumulator_centroids.data[i] = { 0.f, 0.f };
-        accumulator_cluster_sizes.data[i] = 0;
+        centroids_accumulator.data[i] = { 0.f, 0.f };
+        cluster_sizes_accumulator.data[i] = 0;
     }
 
     centroids.data[thread_uid] /= cluster_sizes.data[thread_uid];
@@ -218,37 +207,37 @@ void kmeans(
 
     DeviceVector<size_t> const cluster_sizes { number_of_clusters };
 
-    DeviceVector<Sample> const accumulator_centroids {
+    DeviceVector<Sample> const centroids_accumulator {
         number_of_clusters *
         number_of_blocks_per_grid *
         number_of_threads_per_block
     };
-    accumulator_centroids.reset();
+    centroids_accumulator.reset();
 
-    DeviceVector<size_t> const accumulator_cluster_sizes {
+    DeviceVector<size_t> const cluster_sizes_accumulator {
         number_of_clusters *
         number_of_blocks_per_grid *
         number_of_threads_per_block
     };
-    accumulator_centroids.reset();
+    centroids_accumulator.reset();
 
 
     for(size_t i = 0; i < NUMBER_OF_ITERATIONS; ++i){
 
-        accumulate_kernel
+        compute_partial_centroids_kernel
             <<<
                 number_of_blocks_per_grid, number_of_threads_per_block
             >>>
             (
-                sv, centroids, accumulator_centroids, accumulator_cluster_sizes
+                sv, centroids, centroids_accumulator, cluster_sizes_accumulator
             );
 
-        update_clusters_kernel
+        reduce_centroids_kernel
             <<<
                 1, number_of_clusters
             >>>
             (
-                centroids, cluster_sizes, accumulator_centroids, accumulator_cluster_sizes
+                centroids, cluster_sizes, centroids_accumulator, cluster_sizes_accumulator
             );
     }
 
@@ -261,7 +250,8 @@ void kmeans(
         cudaMemcpyKind::cudaMemcpyDeviceToHost
     );
 
-    std::unique_ptr<size_t[]> const final_cluster_sizes = std::make_unique<size_t[]>(cluster_sizes.size);
+    std::unique_ptr<size_t[]> const final_cluster_sizes =
+        std::make_unique<size_t[]>(cluster_sizes.size);
     cudaMemcpy(
         final_cluster_sizes.get(),
         cluster_sizes.data,
