@@ -92,14 +92,3 @@ clean:
 ifdef PCH_INC_FILES
 	-rm -rf $(PCH_INC_FILES)
 endif
-
-
-
-# number of threads to be used
-#THREADS 		:= 4
-#
-#runseq: $(BIN)
-#	./$^ 10000000 ${CP_CLUSTERS}
-#
-#runpar: $(BIN)
-#	./$^ 10000000 ${CP_CLUSTERS} $(THREADS)
