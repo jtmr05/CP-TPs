@@ -130,11 +130,9 @@ void compute_partial_centroids_kernel(
     DeviceVector<size_t> const cluster_sizes_accumulator)
 {
 
+    //if thread_uid >= sv.size, it doesn't enter the loop simply
+
     unsigned const thread_uid = blockIdx.x * blockDim.x + threadIdx.x;
-    if(thread_uid >= sv.size)
-        return;
-
-
     size_t const stride = gridDim.x * blockDim.x; //the number of threads
 
     for(size_t i = thread_uid; i < sv.size; i += stride){
