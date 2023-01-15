@@ -12,7 +12,9 @@ use constant CLUSTERS   => [4, 20, 32];
 use constant SAMPLES    => [15_000, 240_000, 10_000_000];
 use constant THREAD_LIM => 1024;
 use constant BLOCKS		=> 32;
-use constant DIR        => 'benchmarks';
+use constant BLOCK_LIM  => 1024;
+use constant THREADS	=> 32;
+use constant DIR        => 'fixed_threads';
 
 
 sub main(){
@@ -28,11 +30,13 @@ sub main(){
 
 			my $fn = sprintf '%s/%dsamples%dclusters.out', DIR, $s, $c;
 
-			for(my $t = 1; $t <= THREAD_LIM; $t *= 2){
+			#for(my $t = 1; $t <= THREAD_LIM; $t *= 2){
+			for(my $b = 1; $b <= BLOCK_LIM; $b *= 2){
 				
 				my $command = sprintf
 					'hyperfine -M 5 "bin/k_means %d %d %d %d" >> %s 2> /dev/null',
-					$s, $c, BLOCKS, $t, $fn;
+					#$s, $c, BLOCKS, $t, $fn;
+					$s, $c, $b, THREADS, $fn;
 
 				system $command;
 			}
