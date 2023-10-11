@@ -217,7 +217,7 @@ void kmeans(
         number_of_blocks_per_grid *
         number_of_threads_per_block
     };
-    centroids_accumulator.reset();
+    cluster_sizes_accumulator.reset();
 
 
     for(size_t i = 0; i < NUMBER_OF_ITERATIONS; ++i){
