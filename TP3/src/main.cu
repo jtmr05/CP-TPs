@@ -50,7 +50,7 @@ int main(int const argc, char const* const* const argv){
 
 	if(argc < 4){
 		params.at(2) = 1;
-		fprintf(
+		std::fprintf(
 			stderr,
 			"\033[1m%s: \033[36mnote:\033[0m number of blocks not specified; assuming 1 block\n\n",
 			argv[0]
@@ -59,7 +59,7 @@ int main(int const argc, char const* const* const argv){
 
 	if(argc < 5){
 		params.at(3) = 1;
-		fprintf(
+		std::fprintf(
 			stderr,
 			"\033[1m%s: \033[36mnote:\033[0m number of threads not specified; assuming 1 thread\n\n",
 			argv[0]
